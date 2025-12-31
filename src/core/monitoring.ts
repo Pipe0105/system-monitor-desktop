@@ -1,3 +1,5 @@
+import type { ProfileId } from "./profiles";
+
 export type UsageSample = {
   timestamp: number;
   value: number;
@@ -51,10 +53,10 @@ export const DEFAULT_CONFIG = {
     ram: 80,
     disk: 75,
   },
-  profileId: "default",
+  profileId: "default" as ProfileId,
   layout: {
     presetId: "default",
-    metricOrder: ["cpu", "cores", "ram", "disk"],
+    metricOrder: ["cpu", "cores", "ram", "disk"] as MetricCardId[],
   },
   notification: {
     cooldownMs: 60000,

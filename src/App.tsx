@@ -33,7 +33,7 @@ import type {
 import { findProfileById, PROFILES } from "./core/profiles";
 import type { ProfileId } from "./core/profiles";
 import { getServices } from "./core/services";
-import { useLanguage } from "./i18n";
+import { useLanguage } from "./i18n/index.tsx";
 import LanguageSelector from "./ui/LanguageSelector";
 import {
   findLayoutPresetById,
@@ -420,6 +420,10 @@ function App() {
         findLayoutPresetIdForOrder(normalizedOrder) ??
         "custom";
       setLayoutPresetId(resolvedPreset);
+      setNotificationCooldownMs(
+        config.notification?.cooldownMs ??
+          DEFAULT_CONFIG.notification.cooldownMs
+      );
       setSettingsReady(true);
     };
 
@@ -511,6 +515,9 @@ function App() {
           presetId: layoutPresetId,
           metricOrder,
         },
+        notification: {
+          cooldownMs: notificationCooldownMs,
+        },
       });
     }
   }, [
@@ -522,6 +529,7 @@ function App() {
     profileId,
     layoutPresetId,
     metricOrder,
+    notificationCooldownMs,
     services,
   ]);
 
@@ -676,6 +684,9 @@ function App() {
     setRamThreshold(config.thresholds?.ram ?? DEFAULT_CONFIG.thresholds.ram);
     setDiskThreshold(config.thresholds?.disk ?? DEFAULT_CONFIG.thresholds.disk);
     setProfileId(config.profileId ?? "default");
+    setNotificationCooldownMs(
+      config.notification?.cooldownMs ?? DEFAULT_CONFIG.notification.cooldownMs
+    );
     const normalizedOrder = normalizeMetricOrder(
       config.layout?.metricOrder ?? DEFAULT_METRIC_ORDER,
       DEFAULT_METRIC_ORDER
@@ -1160,6 +1171,35 @@ function App() {
               </label>
             </div>
           </div>
+          <div className="settings-card">
+            <h3>{t("settings.profile.title")}</h3>
+            <div className="settings-grid">
+              <label className="settings-field">
+                <span>{t("settings.profile.label")}</span>
+                <select
+                  value={profileId}
+                  onChange={(event) =>
+                    handleProfileChange(event.target.value as ProfileId)
+                  }
+                >
+                  {PROFILES.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {t(profile.nameKey)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="settings-hint">{t("settings.profile.hint")}</p>
+              <p className="settings-hint">{t(activeProfile.descriptionKey)}</p>
+            </div>
+          </div>
+
+          <div className="settings-card">
+            <h3>{t("settings.language.title")}</h3>
+            <div className="settings-grid">
+              <LanguageSelector />
+            </div>
+          </div>
 
           <div className="settings-card">
             <h3>Temas</h3>
@@ -1247,6 +1287,32 @@ function App() {
           <div className="settings-card">
             <h3>Layout</h3>
             <div className="settings-grid">
+              <label className="settings-field">
+                <span>{t("settings.layout.presetLabel")}</span>
+                <select
+                  value={layoutPresetId}
+                  onChange={(event) =>
+                    handleLayoutPresetChange(
+                      event.target.value as LayoutPresetId
+                    )
+                  }
+                >
+                  {LAYOUT_PRESETS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {t(preset.nameKey)}
+                    </option>
+                  ))}
+                  <option value="custom">
+                    {t("settings.layout.customPreset")}
+                  </option>
+                </select>
+              </label>
+              <p className="settings-hint">{t("settings.layout.presetHint")}</p>
+              <p className="settings-hint">
+                {activeLayoutPreset
+                  ? t(activeLayoutPreset.descriptionKey)
+                  : t("layouts.custom.name")}
+              </p>
               <label className="settings-toggle">
                 <input
                   type="checkbox"
@@ -1363,7 +1429,7 @@ function App() {
                 {SHORTCUTS.map((shortcut) => (
                   <li key={shortcut.keys}>
                     <kbd>{shortcut.keys}</kbd>
-                    <span>{shortcut.description}</span>
+                    <span>{t(shortcut.descriptionKey)}</span>
                   </li>
                 ))}
               </ul>

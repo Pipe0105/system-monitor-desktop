@@ -20,6 +20,14 @@ interface Window {
         ram: number;
         disk: number;
       };
+      profileId?: string;
+      layout?: {
+        presetId?: string;
+        metricOrder?: string[];
+      };
+      notification?: {
+        cooldownMs?: number;
+      };
     }>;
     saveConfig?: (config: {
       intervalMs: number;
@@ -28,12 +36,28 @@ interface Window {
         ram: number;
         disk: number;
       };
+      profileId?: string;
+      layout?: {
+        presetId?: string;
+        metricOrder?: string[];
+      };
+      notification?: {
+        cooldownMs?: number;
+      };
     }) => Promise<{
       intervalMs: number;
       thresholds: {
         cpu: number;
         ram: number;
         disk: number;
+      };
+      profileId?: string;
+      layout?: {
+        presetId?: string;
+        metricOrder?: string[];
+      };
+      notification?: {
+        cooldownMs?: number;
       };
     }>;
     resetConfig?: () => Promise<{
@@ -42,6 +66,14 @@ interface Window {
         cpu: number;
         ram: number;
         disk: number;
+      };
+      profileId?: string;
+      layout?: {
+        presetId?: string;
+        metricOrder?: string[];
+      };
+      notification?: {
+        cooldownMs?: number;
       };
     }>;
     getAutoStartStatus?: () => Promise<{

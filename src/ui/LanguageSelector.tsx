@@ -1,5 +1,5 @@
-import { useLanguage } from "../i18n";
-import type { Language } from "../i18n";
+import { useLanguage } from "../i18n/index.tsx";
+import type { Language } from "../i18n/index.tsx";
 
 const LanguageSelector = () => {
   const { language, setLanguage, t } = useLanguage();

@@ -27,6 +27,9 @@ export type Config = {
     presetId?: string;
     metricOrder?: MetricCardId[];
   };
+  notification?: {
+    cooldownMs: number;
+  };
 };
 
 export type AutoStartStatus = {
