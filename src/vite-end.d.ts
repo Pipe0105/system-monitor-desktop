@@ -1,5 +1,5 @@
 interface Window {
-  api: {
+  api?: {
     getSystemInfo: () => Promise<{
       cpu: string;
       ram: string;

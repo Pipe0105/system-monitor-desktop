@@ -1,161 +1,36 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
-type UsageSample = {
-  timestamp: number;
-  value: number;
-};
-
-type ChartPoint = {
-  x: number;
-  y: number;
-};
-
-type ProcessInfo = {
-  pid: number;
-  name: string;
-  cpu: number;
-  mem: number;
-  memRss: number;
-};
-
-type ThemeMode = "dark" | "light" | "custom";
-
-type CustomTheme = {
-  bg: string;
-  panel: string;
-  text: string;
-  muted: string;
-  border: string;
-  accent: string;
-};
-
-type NotificationChannels = {
-  cpu: boolean;
-  ram: boolean;
-  disk: boolean;
-};
-
-type MetricCardId = "cpu" | "cores" | "ram" | "disk";
-
-const HISTORY_WINDOW_MINUTES = 10;
-const HISTORY_WINDOW_MS = HISTORY_WINDOW_MINUTES * 60 * 1000;
-const INTERVAL_OPTIONS = [
-  { label: "1s", value: 1000 },
-  { label: "2s", value: 2000 },
-  { label: "5s", value: 5000 },
-  { label: "10s", value: 10000 },
-];
-
-const DEFAULT_CONFIG = {
-  intervalMs: INTERVAL_OPTIONS[0].value,
-  thresholds: {
-    cpu: 80,
-    ram: 80,
-    disk: 75,
-  },
-  notification: {
-    cooldownMs: 60000,
-  },
-};
-
-const DEFAULT_CUSTOM_THEME: CustomTheme = {
-  bg: "#101419",
-  panel: "#1f2933",
-  text: "#f5f7ff",
-  muted: "#9aa3b2",
-  border: "#2b3445",
-  accent: "#6d28d9",
-};
-
-const DEFAULT_METRIC_ORDER: MetricCardId[] = ["cpu", "cores", "ram", "disk"];
-
-const SHORTCUTS = [
-  { keys: "T", description: "Cambiar entre tema oscuro y claro" },
-  { keys: "R", description: "Actualizar métricas al instante" },
-  { keys: "L", description: "Bloquear o desbloquear el layout" },
-  { keys: "N", description: "Activar o silenciar notificaciones" },
-  { keys: "S", description: "Ir al panel de ajustes" },
-];
-
-const clampPercent = (value: number) => Math.min(Math.max(value, 0), 100);
-const clampThreshold = (value: number) => clampPercent(value);
-
-const getLoadColor = (value: number) => {
-  if (value < 50) {
-    return "var(--success)";
-  }
-  if (value < 80) {
-    return "var(--warning)";
-  }
-  return "var(--danger)";
-};
-
-const formatPercent = (value: number) => value.toFixed(1);
-const formatMemory = (bytes: number) => {
-  if (!bytes) {
-    return "0 MB";
-  }
-  const mb = bytes / (1024 * 1024);
-  return `${mb.toFixed(0)} MB`;
-};
-
-const buildChartPoints = (samples: UsageSample[]): ChartPoint[] => {
-  if (samples.length === 0) {
-    return [];
-  }
-
-  const lastIndex = Math.max(samples.length - 1, 1);
-  return samples.map((sample, index) => ({
-    x: (index / lastIndex) * 100,
-    y: 100 - clampPercent(sample.value),
-  }));
-};
-
-const pointsToString = (points: ChartPoint[]) =>
-  points.map((point) => `${point.x},${point.y}`).join(" ");
-
-const buildLinePath = (points: ChartPoint[]) =>
-  points
-    .map((point, index) =>
-      index === 0 ? `M ${point.x} ${point.y}` : `L ${point.x} ${point.y}`
-    )
-    .join(" ");
-
-const buildAreaPath = (points: ChartPoint[]) => {
-  if (points.length === 0) {
-    return "";
-  }
-
-  const linePath = buildLinePath(points);
-  const first = points[0];
-  const last = points[points.length - 1];
-
-  return `${linePath} L ${last.x} 100 L ${first.x} 100 Z`;
-};
-
-const safelyParseJSON = <T,>(value: string | null, fallback: T) => {
-  if (!value) {
-    return fallback;
-  }
-  try {
-    return JSON.parse(value) as T;
-  } catch (error) {
-    console.warn("No se pudo leer la configuración almacenada", error);
-    return fallback;
-  }
-};
-
-const normalizeMetricOrder = (
-  stored: MetricCardId[],
-  fallback: MetricCardId[]
-) => {
-  const uniqueStored = stored.filter(
-    (item, index) => stored.indexOf(item) === index && fallback.includes(item)
-  );
-  const missing = fallback.filter((item) => !uniqueStored.includes(item));
-  return [...uniqueStored, ...missing];
-};
+import {
+  DEFAULT_CONFIG,
+  DEFAULT_CUSTOM_THEME,
+  DEFAULT_METRIC_ORDER,
+  HISTORY_WINDOW_MINUTES,
+  HISTORY_WINDOW_MS,
+  INTERVAL_OPTIONS,
+  SHORTCUTS,
+  buildAreaPath,
+  buildChartPoints,
+  buildLinePath,
+  clampPercent,
+  clampThreshold,
+  formatMemory,
+  formatPercent,
+  getLoadColor,
+  normalizeMetricOrder,
+  pointsToString,
+  safelyParseJSON,
+} from "./core/monitoring";
+import type {
+  ChartPoint,
+  CustomTheme,
+  MetricCardId,
+  NotificationChannels,
+  ProcessInfo,
+  ThemeMode,
+  UsageSample,
+} from "./core/monitoring";
+import { getServices } from "./core/services";
 
 type UsageChartProps = {
   samples: UsageSample[];
@@ -319,6 +194,7 @@ function App() {
   const notificationState = useRef({ cpu: false, ram: false, disk: false });
   const notificationTimers = useRef({ cpu: 0, ram: 0, disk: 0 });
   const settingsRef = useRef<HTMLDivElement | null>(null);
+  const services = getServices();
 
   const appendSample = (
     previous: UsageSample[],
@@ -467,7 +343,7 @@ function App() {
 
     fetchInFlight.current = true;
     try {
-      const data = await window.api.getSystemInfo();
+      const data = await services.systemInfo.getSystemInfo();
       const nextCpu = clampPercent(Number(data.cpu));
       const nextRam = clampPercent(Number(data.ram));
       const nextDisk = clampPercent(Number(data.disk));
@@ -495,7 +371,7 @@ function App() {
     } finally {
       fetchInFlight.current = false;
     }
-  }, [cpuThreshold, ramThreshold, diskThreshold, maybeNotify]);
+  }, [cpuThreshold, ramThreshold, diskThreshold, maybeNotify, services]);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("system-monitor-theme");
@@ -503,12 +379,7 @@ function App() {
       setThemeMode(stored);
     }
     const loadConfig = async () => {
-      if (!window.api.getConfig) {
-        setSettingsReady(true);
-        return;
-      }
-
-      const config = await window.api.getConfig();
+      const config = await services.config.getConfig();
       setIntervalMs(config.intervalMs);
       setCpuThreshold(config.thresholds?.cpu ?? DEFAULT_CONFIG.thresholds.cpu);
       setRamThreshold(config.thresholds?.ram ?? DEFAULT_CONFIG.thresholds.ram);
@@ -519,16 +390,14 @@ function App() {
     };
 
     loadConfig();
-  }, []);
+  }, [services]);
 
   useEffect(() => {
-    if (window.api.getAutoStartStatus) {
-      window.api.getAutoStartStatus().then((status) => {
-        setAutoStartEnabled(status.enabled);
-        setAutoStartAvailable(status.available);
-      });
-    }
-  }, []);
+    services.autoStart.getAutoStartStatus().then((status) => {
+      setAutoStartEnabled(status.enabled);
+      setAutoStartAvailable(status.available);
+    });
+  }, [services]);
 
   useEffect(() => {
     applyThemeVariables(themeMode, customTheme);
@@ -590,8 +459,8 @@ function App() {
   }, [shortcutsEnabled]);
 
   useEffect(() => {
-    if (settingsReady && window.api.saveConfig) {
-      window.api.saveConfig({
+    if (settingsReady) {
+      services.config.saveConfig({
         intervalMs,
         thresholds: {
           cpu: cpuThreshold,
@@ -600,13 +469,18 @@ function App() {
         },
       });
     }
-  }, [settingsReady, intervalMs, cpuThreshold, ramThreshold, diskThreshold]);
+  }, [
+    settingsReady,
+    intervalMs,
+    cpuThreshold,
+    ramThreshold,
+    diskThreshold,
+    services,
+  ]);
 
   useEffect(() => {
-    if (window.api.setMetricsInterval) {
-      window.api.setMetricsInterval(intervalMs);
-    }
-  }, [intervalMs]);
+    services.metrics.setMetricsInterval(intervalMs);
+  }, [intervalMs, services]);
 
   useEffect(() => {
     fetchStats();
@@ -718,11 +592,7 @@ function App() {
   ].filter(Boolean) as string[];
 
   const handleAutoStartToggle = async () => {
-    if (!window.api.setAutoStart) {
-      return;
-    }
-
-    const status = await window.api.setAutoStart(!autoStartEnabled);
+    const status = await services.autoStart.setAutoStart(!autoStartEnabled);
     setAutoStartEnabled(status.enabled);
     setAutoStartAvailable(status.available);
   };
@@ -736,21 +606,11 @@ function App() {
     };
 
   const handleRestoreDefaults = async () => {
-    if (window.api.resetConfig) {
-      const config = await window.api.resetConfig();
-      setIntervalMs(config.intervalMs);
-      setCpuThreshold(config.thresholds?.cpu ?? DEFAULT_CONFIG.thresholds.cpu);
-      setRamThreshold(config.thresholds?.ram ?? DEFAULT_CONFIG.thresholds.ram);
-      setDiskThreshold(
-        config.thresholds?.disk ?? DEFAULT_CONFIG.thresholds.disk
-      );
-      return;
-    }
-
-    setIntervalMs(DEFAULT_CONFIG.intervalMs);
-    setCpuThreshold(DEFAULT_CONFIG.thresholds.cpu);
-    setRamThreshold(DEFAULT_CONFIG.thresholds.ram);
-    setDiskThreshold(DEFAULT_CONFIG.thresholds.disk);
+    const config = await services.config.resetConfig();
+    setIntervalMs(config.intervalMs);
+    setCpuThreshold(config.thresholds?.cpu ?? DEFAULT_CONFIG.thresholds.cpu);
+    setRamThreshold(config.thresholds?.ram ?? DEFAULT_CONFIG.thresholds.ram);
+    setDiskThreshold(config.thresholds?.disk ?? DEFAULT_CONFIG.thresholds.disk);
   };
 
   const handleMetricDragStart = (id: MetricCardId) => {
