@@ -5,6 +5,13 @@ interface Window {
       ram: string;
       disk: string;
       cpuCores: number[];
+      processes: {
+        pid: number;
+        name: string;
+        cpu: number;
+        mem: number;
+        memRss: number;
+      }[];
     }>;
     getConfig?: () => Promise<{
       intervalMs: number;

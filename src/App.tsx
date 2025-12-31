@@ -11,6 +11,14 @@ type ChartPoint = {
   y: number;
 };
 
+type ProcessInfo = {
+  pid: number;
+  name: string;
+  cpu: number;
+  mem: number;
+  memRss: number;
+};
+
 const HISTORY_WINDOW_MINUTES = 10;
 const HISTORY_WINDOW_MS = HISTORY_WINDOW_MINUTES * 60 * 1000;
 const INTERVAL_OPTIONS = [
@@ -42,6 +50,13 @@ const getLoadColor = (value: number) => {
 };
 
 const formatPercent = (value: number) => value.toFixed(1);
+const formatMemory = (bytes: number) => {
+  if (!bytes) {
+    return "0 MB";
+  }
+  const mb = bytes / (1024 * 1024);
+  return `${mb.toFixed(0)} MB`;
+};
 
 const buildChartPoints = (samples: UsageSample[]): ChartPoint[] => {
   if (samples.length === 0) {
@@ -158,6 +173,7 @@ function App() {
   const [cpuHistory, setCpuHistory] = useState<UsageSample[]>([]);
   const [ramHistory, setRamHistory] = useState<UsageSample[]>([]);
   const [diskHistory, setDiskHistory] = useState<UsageSample[]>([]);
+  const [processes, setProcesses] = useState<ProcessInfo[]>([]);
   const [darkMode, setDarkMode] = useState(true);
   const [intervalMs, setIntervalMs] = useState(DEFAULT_CONFIG.intervalMs);
   const [cpuThreshold, setCpuThreshold] = useState(
@@ -272,6 +288,12 @@ function App() {
       setCpuHistory((previous) => appendSample(previous, nextCpu, timestamp));
       setRamHistory((previous) => appendSample(previous, nextRam, timestamp));
       setDiskHistory((previous) => appendSample(previous, nextDisk, timestamp));
+      const nextProcesses = (data.processes ?? []).map((process) => ({
+        ...process,
+        cpu: clampPercent(process.cpu),
+        mem: clampPercent(process.mem),
+      }));
+      setProcesses(nextProcesses);
     };
 
     fetchStats();
@@ -293,6 +315,15 @@ function App() {
   const ramEventMarkers = useMemo(
     () => buildEventMarkers(ramHistory, ramThreshold),
     [ramHistory, ramThreshold]
+  );
+
+  const topCpuProcesses = useMemo(
+    () => [...processes].sort((a, b) => b.cpu - a.cpu).slice(0, 5),
+    [processes]
+  );
+  const topRamProcesses = useMemo(
+    () => [...processes].sort((a, b) => b.mem - a.mem).slice(0, 5),
+    [processes]
   );
   const alerts = [
     cpu >= cpuThreshold
@@ -607,6 +638,96 @@ function App() {
             )}% · Últimos ${HISTORY_WINDOW_MINUTES} min`}
           />
         </article>
+      </section>
+
+      <section className="processes-panel">
+        <div className="processes-header">
+          <div>
+            <p className="eyebrow">Monitor por procesos</p>
+            <h2>Procesos activos</h2>
+            <p className="subtitle">
+              Top 5 por CPU/RAM y detalle de los procesos más demandantes.
+            </p>
+          </div>
+          <div className="processes-meta">
+            <span>Actualización cada {intervalMs / 1000}s</span>
+            <span>{processes.length} procesos en vista</span>
+          </div>
+        </div>
+
+        <div className="processes-top">
+          <div className="processes-card">
+            <h3>Top CPU</h3>
+            <ol>
+              {topCpuProcesses.map((process) => (
+                <li key={`top-cpu-${process.pid}`}>
+                  <div>
+                    <strong>{process.name}</strong>
+                    <span>PID {process.pid}</span>
+                  </div>
+                  <span
+                    className="pill"
+                    style={{ color: getLoadColor(process.cpu) }}
+                  >
+                    {formatPercent(process.cpu)}%
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+          <div className="processes-card">
+            <h3>Top RAM</h3>
+            <ol>
+              {topRamProcesses.map((process) => (
+                <li key={`top-ram-${process.pid}`}>
+                  <div>
+                    <strong>{process.name}</strong>
+                    <span>PID {process.pid}</span>
+                  </div>
+                  <span
+                    className="pill"
+                    style={{ color: getLoadColor(process.mem) }}
+                  >
+                    {formatPercent(process.mem)}%
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+
+        <div className="processes-table">
+          <div className="processes-table-head">
+            <span>Proceso</span>
+            <span>PID</span>
+            <span>CPU</span>
+            <span>RAM</span>
+            <span>Memoria</span>
+          </div>
+          {processes.map((process) => {
+            const isHeavy =
+              process.cpu >= cpuThreshold || process.mem >= ramThreshold;
+            return (
+              <div
+                key={`process-${process.pid}`}
+                className={`process-row${isHeavy ? " heavy" : ""}`}
+              >
+                <div className="process-name">
+                  <strong>{process.name}</strong>
+                  {isHeavy ? <span>⚠️ Alto consumo</span> : null}
+                </div>
+                <span>{process.pid}</span>
+                <span style={{ color: getLoadColor(process.cpu) }}>
+                  {formatPercent(process.cpu)}%
+                </span>
+                <span style={{ color: getLoadColor(process.mem) }}>
+                  {formatPercent(process.mem)}%
+                </span>
+                <span>{formatMemory(process.memRss)}</span>
+              </div>
+            );
+          })}
+        </div>
       </section>
     </div>
   );

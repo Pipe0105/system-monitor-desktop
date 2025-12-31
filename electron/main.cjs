@@ -144,6 +144,7 @@ ipcMain.handle("get-system-info", async () => {
   const cpu = await si.currentLoad();
   const mem = await si.mem();
   const disks = await si.fsSize();
+  const processData = await si.processes();
   const totals = disks.reduce(
     (acc, disk) => {
       acc.used += disk.used || 0;
@@ -153,12 +154,23 @@ ipcMain.handle("get-system-info", async () => {
     { used: 0, size: 0 }
   );
   const diskUsage = totals.size > 0 ? (totals.used / totals.size) * 100 : 0;
+  const processes = processData.list
+    .map((process) => ({
+      pid: process.pid,
+      name: process.name,
+      cpu: Number(process.cpu?.toFixed(1) ?? 0),
+      mem: Number(process.mem?.toFixed(1) ?? 0),
+      memRss: process.memRss || 0,
+    }))
+    .sort((a, b) => b.cpu - a.cpu)
+    .slice(0, 40);
 
   return {
     cpu: cpu.currentLoad.toFixed(1),
     ram: ((mem.used / mem.total) * 100).toFixed(1),
     disk: diskUsage.toFixed(1),
     cpuCores: cpu.cpus.map((core) => Number(core.load.toFixed(1))),
+    processes,
   };
 });
 
