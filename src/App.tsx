@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
 type UsageSample = {
@@ -19,6 +19,25 @@ type ProcessInfo = {
   memRss: number;
 };
 
+type ThemeMode = "dark" | "light" | "custom";
+
+type CustomTheme = {
+  bg: string;
+  panel: string;
+  text: string;
+  muted: string;
+  border: string;
+  accent: string;
+};
+
+type NotificationChannels = {
+  cpu: boolean;
+  ram: boolean;
+  disk: boolean;
+};
+
+type MetricCardId = "cpu" | "cores" | "ram" | "disk";
+
 const HISTORY_WINDOW_MINUTES = 10;
 const HISTORY_WINDOW_MS = HISTORY_WINDOW_MINUTES * 60 * 1000;
 const INTERVAL_OPTIONS = [
@@ -33,8 +52,31 @@ const DEFAULT_CONFIG = {
   thresholds: {
     cpu: 80,
     ram: 80,
+    disk: 75,
+  },
+  notification: {
+    cooldownMs: 60000,
   },
 };
+
+const DEFAULT_CUSTOM_THEME: CustomTheme = {
+  bg: "#101419",
+  panel: "#1f2933",
+  text: "#f5f7ff",
+  muted: "#9aa3b2",
+  border: "#2b3445",
+  accent: "#6d28d9",
+};
+
+const DEFAULT_METRIC_ORDER: MetricCardId[] = ["cpu", "cores", "ram", "disk"];
+
+const SHORTCUTS = [
+  { keys: "T", description: "Cambiar entre tema oscuro y claro" },
+  { keys: "R", description: "Actualizar métricas al instante" },
+  { keys: "L", description: "Bloquear o desbloquear el layout" },
+  { keys: "N", description: "Activar o silenciar notificaciones" },
+  { keys: "S", description: "Ir al panel de ajustes" },
+];
 
 const clampPercent = (value: number) => Math.min(Math.max(value, 0), 100);
 const clampThreshold = (value: number) => clampPercent(value);
@@ -90,6 +132,29 @@ const buildAreaPath = (points: ChartPoint[]) => {
   const last = points[points.length - 1];
 
   return `${linePath} L ${last.x} 100 L ${first.x} 100 Z`;
+};
+
+const safelyParseJSON = <T,>(value: string | null, fallback: T) => {
+  if (!value) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(value) as T;
+  } catch (error) {
+    console.warn("No se pudo leer la configuración almacenada", error);
+    return fallback;
+  }
+};
+
+const normalizeMetricOrder = (
+  stored: MetricCardId[],
+  fallback: MetricCardId[]
+) => {
+  const uniqueStored = stored.filter(
+    (item, index) => stored.indexOf(item) === index && fallback.includes(item)
+  );
+  const missing = fallback.filter((item) => !uniqueStored.includes(item));
+  return [...uniqueStored, ...missing];
 };
 
 type UsageChartProps = {
@@ -174,7 +239,23 @@ function App() {
   const [ramHistory, setRamHistory] = useState<UsageSample[]>([]);
   const [diskHistory, setDiskHistory] = useState<UsageSample[]>([]);
   const [processes, setProcesses] = useState<ProcessInfo[]>([]);
-  const [darkMode, setDarkMode] = useState(true);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    const storedMode = window.localStorage.getItem("system-monitor-theme-mode");
+    if (
+      storedMode === "dark" ||
+      storedMode === "light" ||
+      storedMode === "custom"
+    ) {
+      return storedMode;
+    }
+    return "dark";
+  });
+  const [customTheme, setCustomTheme] = useState<CustomTheme>(() =>
+    safelyParseJSON(
+      window.localStorage.getItem("system-monitor-theme-custom"),
+      DEFAULT_CUSTOM_THEME
+    )
+  );
   const [intervalMs, setIntervalMs] = useState(DEFAULT_CONFIG.intervalMs);
   const [cpuThreshold, setCpuThreshold] = useState(
     DEFAULT_CONFIG.thresholds.cpu
@@ -182,10 +263,62 @@ function App() {
   const [ramThreshold, setRamThreshold] = useState(
     DEFAULT_CONFIG.thresholds.ram
   );
+  const [diskThreshold, setDiskThreshold] = useState(
+    DEFAULT_CONFIG.thresholds.disk
+  );
   const [settingsReady, setSettingsReady] = useState(false);
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
   const [autoStartAvailable, setAutoStartAvailable] = useState(false);
+  const [layoutUnlocked, setLayoutUnlocked] = useState(
+    safelyParseJSON(
+      window.localStorage.getItem("system-monitor-layout-unlocked"),
+      true
+    )
+  );
+  const [metricOrder, setMetricOrder] = useState<MetricCardId[]>(() =>
+    normalizeMetricOrder(
+      safelyParseJSON(
+        window.localStorage.getItem("system-monitor-metric-order"),
+        DEFAULT_METRIC_ORDER
+      ),
+      DEFAULT_METRIC_ORDER
+    )
+  );
+  const [notificationsEnabled, setNotificationsEnabled] = useState(
+    safelyParseJSON(
+      window.localStorage.getItem("system-monitor-notifications-enabled"),
+      true
+    )
+  );
+  const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(
+    safelyParseJSON(
+      window.localStorage.getItem("system-monitor-notification-sound"),
+      false
+    )
+  );
+  const [notificationCooldownMs, setNotificationCooldownMs] = useState(
+    safelyParseJSON(
+      window.localStorage.getItem("system-monitor-notification-cooldown"),
+      DEFAULT_CONFIG.notifications.cooldownMs
+    )
+  );
+  const [notificationChannels, setNotificationChannels] = useState(() =>
+    safelyParseJSON<NotificationChannels>(
+      window.localStorage.getItem("system-monitor-notification-channels"),
+      { cpu: true, ram: true, disk: true }
+    )
+  );
+  const [shortcutsEnabled, setShortcutsEnabled] = useState(
+    safelyParseJSON(
+      window.localStorage.getItem("system-monitor-shortcuts-enabled"),
+      true
+    )
+  );
   const fetchInFlight = useRef(false);
+  const dragMetricId = useRef<MetricCardId | null>(null);
+  const notificationState = useRef({ cpu: false, ram: false, disk: false });
+  const notificationTimers = useRef({ cpu: 0, ram: 0, disk: 0 });
+  const settingsRef = useRef<HTMLDivElement | null>(null);
 
   const appendSample = (
     previous: UsageSample[],
@@ -229,10 +362,145 @@ function App() {
     }, []);
   };
 
+  const applyThemeVariables = useCallback(
+    (mode: ThemeMode, theme: CustomTheme) => {
+      const root = document.documentElement;
+      root.dataset.theme = mode;
+      if (mode === "custom") {
+        root.style.setProperty("--bg", theme.bg);
+        root.style.setProperty("--panel", theme.panel);
+        root.style.setProperty("--text", theme.text);
+        root.style.setProperty("--muted", theme.muted);
+        root.style.setProperty("--border", theme.border);
+        root.style.setProperty("--accent", theme.accent);
+      } else {
+        ["bg", "panel", "text", "muted", "border", "accent"].forEach((token) =>
+          root.style.removeProperty(`--${token}`)
+        );
+      }
+    },
+    []
+  );
+
+  const playNotificationSound = useCallback(() => {
+    if (!notificationSoundEnabled) {
+      return;
+    }
+
+    try {
+      const audioContext = new AudioContext();
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+
+      oscillator.type = "sine";
+      oscillator.frequency.value = 880;
+      gain.gain.value = 0.08;
+
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.2);
+
+      oscillator.onended = () => {
+        audioContext.close();
+      };
+    } catch (error) {
+      console.warn("No se pudo reproducir el sonido de alerta", error);
+    }
+  }, [notificationSoundEnabled]);
+
+  const sendNotification = useCallback(
+    (title: string, body: string) => {
+      if (!("Notification" in window)) {
+        return;
+      }
+
+      if (Notification.permission !== "granted") {
+        return;
+      }
+
+      new Notification(title, { body });
+      playNotificationSound();
+    },
+    [playNotificationSound]
+  );
+
+  const maybeNotify = useCallback(
+    (metric: keyof NotificationChannels, value: number, threshold: number) => {
+      if (!notificationsEnabled || !notificationChannels[metric]) {
+        notificationState.current[metric] = value >= threshold;
+        return;
+      }
+
+      const isAlert = value >= threshold;
+      const wasAlert = notificationState.current[metric];
+      notificationState.current[metric] = isAlert;
+
+      if (!isAlert) {
+        return;
+      }
+
+      const now = Date.now();
+      const lastSent = notificationTimers.current[metric];
+      if (!wasAlert || now - lastSent >= notificationCooldownMs) {
+        const label = metric.toUpperCase();
+        sendNotification(
+          `Alerta ${label}`,
+          `${label} superó el ${threshold}% (ahora ${formatPercent(value)}%).`
+        );
+        notificationTimers.current[metric] = now;
+      }
+    },
+    [
+      notificationChannels,
+      notificationCooldownMs,
+      notificationsEnabled,
+      sendNotification,
+    ]
+  );
+
+  const fetchStats = useCallback(async () => {
+    if (fetchInFlight.current) {
+      return;
+    }
+
+    fetchInFlight.current = true;
+    try {
+      const data = await window.api.getSystemInfo();
+      const nextCpu = clampPercent(Number(data.cpu));
+      const nextRam = clampPercent(Number(data.ram));
+      const nextDisk = clampPercent(Number(data.disk));
+      const timestamp = Date.now();
+
+      setCpu(nextCpu);
+      setRam(nextRam);
+      setDisk(nextDisk);
+      setCpuCores(data.cpuCores.map((value) => clampPercent(value)));
+      setCpuHistory((previous) => appendSample(previous, nextCpu, timestamp));
+      setRamHistory((previous) => appendSample(previous, nextRam, timestamp));
+      setDiskHistory((previous) => appendSample(previous, nextDisk, timestamp));
+      const nextProcesses = (data.processes ?? []).map((process) => ({
+        ...process,
+        cpu: clampPercent(process.cpu),
+        mem: clampPercent(process.mem),
+      }));
+      setProcesses(nextProcesses);
+
+      maybeNotify("cpu", nextCpu, cpuThreshold);
+      maybeNotify("ram", nextRam, ramThreshold);
+      maybeNotify("disk", nextDisk, diskThreshold);
+    } catch (error) {
+      console.error("No se pudo obtener las métricas del sistema", error);
+    } finally {
+      fetchInFlight.current = false;
+    }
+  }, [cpuThreshold, ramThreshold, diskThreshold, maybeNotify]);
+
   useEffect(() => {
     const stored = window.localStorage.getItem("system-monitor-theme");
-    if (stored) {
-      setDarkMode(stored === "dark");
+    if (stored === "light" || stored === "dark" || stored === "custom") {
+      setThemeMode(stored);
     }
     const loadConfig = async () => {
       if (!window.api.getConfig) {
@@ -242,8 +510,11 @@ function App() {
 
       const config = await window.api.getConfig();
       setIntervalMs(config.intervalMs);
-      setCpuThreshold(config.thresholds.cpu);
-      setRamThreshold(config.thresholds.ram);
+      setCpuThreshold(config.thresholds?.cpu ?? DEFAULT_CONFIG.thresholds.cpu);
+      setRamThreshold(config.thresholds?.ram ?? DEFAULT_CONFIG.thresholds.ram);
+      setDiskThreshold(
+        config.thresholds?.disk ?? DEFAULT_CONFIG.thresholds.disk
+      );
       setSettingsReady(true);
     };
 
@@ -260,19 +531,76 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const nextTheme = darkMode ? "dark" : "light";
-    document.documentElement.dataset.theme = nextTheme;
-    window.localStorage.setItem("system-monitor-theme", nextTheme);
-  }, [darkMode]);
+    applyThemeVariables(themeMode, customTheme);
+    window.localStorage.setItem("system-monitor-theme", themeMode);
+    window.localStorage.setItem("system-monitor-theme-mode", themeMode);
+    window.localStorage.setItem(
+      "system-monitor-theme-custom",
+      JSON.stringify(customTheme)
+    );
+  }, [applyThemeVariables, customTheme, themeMode]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "system-monitor-layout-unlocked",
+      JSON.stringify(layoutUnlocked)
+    );
+  }, [layoutUnlocked]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "system-monitor-metric-order",
+      JSON.stringify(metricOrder)
+    );
+  }, [metricOrder]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "system-monitor-notifications-enabled",
+      JSON.stringify(notificationsEnabled)
+    );
+  }, [notificationsEnabled]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "system-monitor-notification-sound",
+      JSON.stringify(notificationSoundEnabled)
+    );
+  }, [notificationSoundEnabled]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "system-monitor-notification-cooldown",
+      JSON.stringify(notificationCooldownMs)
+    );
+  }, [notificationCooldownMs]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "system-monitor-notification-channels",
+      JSON.stringify(notificationChannels)
+    );
+  }, [notificationChannels]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "system-monitor-shortcuts-enabled",
+      JSON.stringify(shortcutsEnabled)
+    );
+  }, [shortcutsEnabled]);
 
   useEffect(() => {
     if (settingsReady && window.api.saveConfig) {
       window.api.saveConfig({
         intervalMs,
-        thresholds: { cpu: cpuThreshold, ram: ramThreshold },
+        thresholds: {
+          cpu: cpuThreshold,
+          ram: ramThreshold,
+          disk: diskThreshold,
+        },
       });
     }
-  }, [settingsReady, intervalMs, cpuThreshold, ramThreshold]);
+  }, [settingsReady, intervalMs, cpuThreshold, ramThreshold, diskThreshold]);
 
   useEffect(() => {
     if (window.api.setMetricsInterval) {
@@ -281,46 +609,56 @@ function App() {
   }, [intervalMs]);
 
   useEffect(() => {
-    const fetchStats = async () => {
-      if (fetchInFlight.current) {
-        return;
-      }
-
-      fetchInFlight.current = true;
-      try {
-        const data = await window.api.getSystemInfo();
-        const nextCpu = clampPercent(Number(data.cpu));
-        const nextRam = clampPercent(Number(data.ram));
-        const nextDisk = clampPercent(Number(data.disk));
-        const timestamp = Date.now();
-
-        setCpu(nextCpu);
-        setRam(nextRam);
-        setDisk(nextDisk);
-        setCpuCores(data.cpuCores.map((value) => clampPercent(value)));
-        setCpuHistory((previous) => appendSample(previous, nextCpu, timestamp));
-        setRamHistory((previous) => appendSample(previous, nextRam, timestamp));
-        setDiskHistory((previous) =>
-          appendSample(previous, nextDisk, timestamp)
-        );
-        const nextProcesses = (data.processes ?? []).map((process) => ({
-          ...process,
-          cpu: clampPercent(process.cpu),
-          mem: clampPercent(process.mem),
-        }));
-        setProcesses(nextProcesses);
-      } catch (error) {
-        console.error("No se pudo obtener las métricas del sistema", error);
-      } finally {
-        fetchInFlight.current = false;
-      }
-    };
-
     fetchStats();
     const interval = setInterval(fetchStats, intervalMs);
 
     return () => clearInterval(interval);
-  }, [intervalMs]);
+  }, [fetchStats, intervalMs]);
+
+  useEffect(() => {
+    if (!shortcutsEnabled) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT" ||
+        target?.isContentEditable;
+
+      if (isTyping) {
+        return;
+      }
+
+      switch (event.key.toLowerCase()) {
+        case "t":
+          setThemeMode((prev) => (prev === "dark" ? "light" : "dark"));
+          break;
+        case "r":
+          fetchStats();
+          break;
+        case "l":
+          setLayoutUnlocked((prev) => !prev);
+          break;
+        case "n":
+          toggleNotifications();
+          break;
+        case "s":
+          settingsRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [fetchStats, shortcutsEnabled, toggleNotifications]);
 
   const cpuColor = useMemo(() => getLoadColor(cpu), [cpu]);
   const ramColor = useMemo(() => getLoadColor(ram), [ram]);
@@ -337,6 +675,11 @@ function App() {
     [ramHistory, ramThreshold]
   );
 
+  const diskEventMarkers = useMemo(
+    () => buildEventMarkers(diskHistory, diskThreshold),
+    [diskHistory, diskThreshold]
+  );
+
   const topCpuProcesses = useMemo(
     () => [...processes].sort((a, b) => b.cpu - a.cpu).slice(0, 5),
     [processes]
@@ -351,6 +694,9 @@ function App() {
       : null,
     ram >= ramThreshold
       ? `RAM encima del ${ramThreshold}% (${formatPercent(ram)}%)`
+      : null,
+    disk >= diskThreshold
+      ? `Disco encima del ${diskThreshold}% (${formatPercent(disk)}%)`
       : null,
   ].filter(Boolean) as string[];
 
@@ -376,14 +722,312 @@ function App() {
     if (window.api.resetConfig) {
       const config = await window.api.resetConfig();
       setIntervalMs(config.intervalMs);
-      setCpuThreshold(config.thresholds.cpu);
-      setRamThreshold(config.thresholds.ram);
+      setCpuThreshold(config.thresholds?.cpu ?? DEFAULT_CONFIG.thresholds.cpu);
+      setRamThreshold(config.thresholds?.ram ?? DEFAULT_CONFIG.thresholds.ram);
+      setDiskThreshold(
+        config.thresholds?.disk ?? DEFAULT_CONFIG.thresholds.disk
+      );
       return;
     }
 
     setIntervalMs(DEFAULT_CONFIG.intervalMs);
     setCpuThreshold(DEFAULT_CONFIG.thresholds.cpu);
     setRamThreshold(DEFAULT_CONFIG.thresholds.ram);
+  };
+
+  const handleMetricDragStart = (id: MetricCardId) => {
+    if (!layoutUnlocked) {
+      return;
+    }
+    dragMetricId.current = id;
+  };
+
+  const handleMetricDrop = (id: MetricCardId) => {
+    if (!layoutUnlocked) {
+      return;
+    }
+
+    const dragged = dragMetricId.current;
+    dragMetricId.current = null;
+    if (!dragged || dragged === id) {
+      return;
+    }
+
+    setMetricOrder((prev) => {
+      const next = prev.filter((item) => item !== dragged);
+      const targetIndex = next.indexOf(id);
+      next.splice(targetIndex, 0, dragged);
+      return next;
+    });
+  };
+
+  const handleMetricDragOver = (event: React.DragEvent) => {
+    if (layoutUnlocked) {
+      event.preventDefault();
+    }
+  };
+
+  const handleThemeModeChange = (value: ThemeMode) => {
+    setThemeMode(value);
+  };
+
+  const handleCustomThemeChange = (key: keyof CustomTheme, value: string) => {
+    setCustomTheme((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
+  const toggleNotifications = useCallback(async () => {
+    const nextValue = !notificationsEnabled;
+    setNotificationsEnabled(nextValue);
+
+    if (!nextValue || !("Notification" in window)) {
+      return;
+    }
+
+    if (Notification.permission === "default") {
+      try {
+        await Notification.requestPermission();
+      } catch (error) {
+        console.warn("No se pudo solicitar permiso de notificaciones", error);
+      }
+    }
+  }, [notificationsEnabled]);
+
+  const handleChannelToggle = (channel: keyof NotificationChannels) => {
+    setNotificationChannels((prev) => ({
+      ...prev,
+      [channel]: !prev[channel],
+    }));
+  };
+
+  const renderMetricCard = (id: MetricCardId) => {
+    switch (id) {
+      case "cpu":
+        return (
+          <article
+            key="cpu"
+            className={`metric-card ${
+              layoutUnlocked ? "layout-draggable" : ""
+            }`}
+            draggable={layoutUnlocked}
+            onDragStart={() => handleMetricDragStart("cpu")}
+            onDragOver={handleMetricDragOver}
+            onDrop={() => handleMetricDrop("cpu")}
+          >
+            <div className="metric-header">
+              <div className="metric-title">
+                <span className="drag-handle" aria-hidden="true">
+                  ⠿
+                </span>
+                <h2>CPU</h2>
+              </div>
+              <span
+                className="metric-pill"
+                style={{ backgroundColor: cpuColor }}
+              >
+                {formatPercent(cpu)}%
+              </span>
+            </div>
+            <div className="metric-stats">
+              <div className="metric-stat">
+                <span>Promedio</span>
+                <strong>{formatPercent(cpuStats.average)}%</strong>
+              </div>
+              <div className="metric-stat">
+                <span>Pico</span>
+                <strong>{formatPercent(cpuStats.peak)}%</strong>
+              </div>
+            </div>
+            <div className="metric-bar">
+              <span
+                className="metric-bar-fill"
+                style={{ width: `${cpu}%`, backgroundColor: cpuColor }}
+              />
+            </div>
+            <UsageChart
+              samples={cpuHistory}
+              color={cpuColor}
+              label="cpu"
+              eventMarkers={cpuEventMarkers}
+              tooltip={`CPU ${formatPercent(
+                cpuStats.latest
+              )}% · Promedio ${formatPercent(
+                cpuStats.average
+              )}% · Pico ${formatPercent(
+                cpuStats.peak
+              )}% · Últimos ${HISTORY_WINDOW_MINUTES} min`}
+            />
+          </article>
+        );
+      case "cores":
+        return (
+          <article
+            key="cores"
+            className={`metric-card ${
+              layoutUnlocked ? "layout-draggable" : ""
+            }`}
+            draggable={layoutUnlocked}
+            onDragStart={() => handleMetricDragStart("cores")}
+            onDragOver={handleMetricDragOver}
+            onDrop={() => handleMetricDrop("cores")}
+          >
+            <div className="metric-header">
+              <div className="metric-title">
+                <span className="drag-handle" aria-hidden="true">
+                  ⠿
+                </span>
+                <h2>CPU por núcleo</h2>
+              </div>
+              <span
+                className="metric-pill"
+                style={{ backgroundColor: cpuColor }}
+              >
+                {cpuCores.length} núcleos
+              </span>
+            </div>
+            <div className="core-grid">
+              {cpuCores.map((coreValue, index) => {
+                const coreColor = getLoadColor(coreValue);
+                return (
+                  <div key={`core-${index}`} className="core-card">
+                    <div className="core-header">
+                      <span>Núcleo {index + 1}</span>
+                      <strong>{formatPercent(coreValue)}%</strong>
+                    </div>
+                    <div className="metric-bar">
+                      <span
+                        className="metric-bar-fill"
+                        style={{
+                          width: `${coreValue}%`,
+                          backgroundColor: coreColor,
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </article>
+        );
+      case "ram":
+        return (
+          <article
+            key="ram"
+            className={`metric-card ${
+              layoutUnlocked ? "layout-draggable" : ""
+            }`}
+            draggable={layoutUnlocked}
+            onDragStart={() => handleMetricDragStart("ram")}
+            onDragOver={handleMetricDragOver}
+            onDrop={() => handleMetricDrop("ram")}
+          >
+            <div className="metric-header">
+              <div className="metric-title">
+                <span className="drag-handle" aria-hidden="true">
+                  ⠿
+                </span>
+                <h2>RAM</h2>
+              </div>
+              <span
+                className="metric-pill"
+                style={{ backgroundColor: ramColor }}
+              >
+                {formatPercent(ram)}%
+              </span>
+            </div>
+            <div className="metric-stats">
+              <div className="metric-stat">
+                <span>Promedio</span>
+                <strong>{formatPercent(ramStats.average)}%</strong>
+              </div>
+              <div className="metric-stat">
+                <span>Pico</span>
+                <strong>{formatPercent(ramStats.peak)}%</strong>
+              </div>
+            </div>
+            <div className="metric-bar">
+              <span
+                className="metric-bar-fill"
+                style={{ width: `${ram}%`, backgroundColor: ramColor }}
+              />
+            </div>
+            <UsageChart
+              samples={ramHistory}
+              color={ramColor}
+              label="ram"
+              eventMarkers={ramEventMarkers}
+              tooltip={`RAM ${formatPercent(
+                ramStats.latest
+              )}% · Promedio ${formatPercent(
+                ramStats.average
+              )}% · Pico ${formatPercent(
+                ramStats.peak
+              )}% · Últimos ${HISTORY_WINDOW_MINUTES} min`}
+            />
+          </article>
+        );
+      case "disk":
+        return (
+          <article
+            key="disk"
+            className={`metric-card ${
+              layoutUnlocked ? "layout-draggable" : ""
+            }`}
+            draggable={layoutUnlocked}
+            onDragStart={() => handleMetricDragStart("disk")}
+            onDragOver={handleMetricDragOver}
+            onDrop={() => handleMetricDrop("disk")}
+          >
+            <div className="metric-header">
+              <div className="metric-title">
+                <span className="drag-handle" aria-hidden="true">
+                  ⠿
+                </span>
+                <h2>Disco</h2>
+              </div>
+              <span
+                className="metric-pill"
+                style={{ backgroundColor: diskColor }}
+              >
+                {formatPercent(disk)}%
+              </span>
+            </div>
+            <div className="metric-stats">
+              <div className="metric-stat">
+                <span>Promedio</span>
+                <strong>{formatPercent(diskStats.average)}%</strong>
+              </div>
+              <div className="metric-stat">
+                <span>Pico</span>
+                <strong>{formatPercent(diskStats.peak)}%</strong>
+              </div>
+            </div>
+            <div className="metric-bar">
+              <span
+                className="metric-bar-fill"
+                style={{ width: `${disk}%`, backgroundColor: diskColor }}
+              />
+            </div>
+            <UsageChart
+              samples={diskHistory}
+              color={diskColor}
+              label="disk"
+              eventMarkers={diskEventMarkers}
+              tooltip={`Disco ${formatPercent(
+                diskStats.latest
+              )}% · Promedio ${formatPercent(
+                diskStats.average
+              )}% · Pico ${formatPercent(
+                diskStats.peak
+              )}% · Últimos ${HISTORY_WINDOW_MINUTES} min`}
+            />
+          </article>
+        );
+      default:
+        return null;
+    }
   };
 
   return (
@@ -412,9 +1056,15 @@ function App() {
           <button
             className="theme-toggle"
             type="button"
-            onClick={() => setDarkMode((prev) => !prev)}
+            onClick={() =>
+              setThemeMode((prev) => (prev === "dark" ? "light" : "dark"))
+            }
           >
-            {darkMode ? "🌙 Modo oscuro" : "☀️ Modo claro"}
+            {themeMode === "dark"
+              ? "🌙 Modo oscuro"
+              : themeMode === "light"
+              ? "☀️ Modo claro"
+              : "🎨 Tema personalizado"}
           </button>
         </div>
       </header>
@@ -423,7 +1073,7 @@ function App() {
         Minimiza la ventana para enviarla a la bandeja del sistema.
       </p>
 
-      <section className="settings-panel">
+      <section className="settings-panel" ref={settingsRef}>
         <div className="settings-header">
           <div>
             <p className="eyebrow">Configuración avanzada</p>
@@ -437,76 +1087,320 @@ function App() {
             Restaurar valores por defecto
           </button>
         </div>
-        <div className="settings-grid">
-          <label className="settings-field">
-            <span>Intervalo de actualización</span>
-            <select
-              value={intervalMs}
-              onChange={(event) => setIntervalMs(Number(event.target.value))}
-            >
-              {INTERVAL_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="settings-field">
-            <span>Umbral CPU</span>
-            <div className="settings-input">
-              <input
-                type="range"
-                min={20}
-                max={100}
-                value={cpuThreshold}
-                onChange={(event) =>
-                  handleThresholdChange(setCpuThreshold)(
-                    Number(event.target.value)
-                  )
-                }
-              />
-              <input
-                type="number"
-                min={20}
-                max={100}
-                value={cpuThreshold}
-                onChange={(event) =>
-                  handleThresholdChange(setCpuThreshold)(
-                    Number(event.target.value)
-                  )
-                }
-              />
-              <span>%</span>
+        <div className="settings-sections">
+          <div className="settings-card">
+            <h3>Ajustes de medición</h3>
+            <div className="settings-grid">
+              <label className="settings-field">
+                <span>Intervalo de actualización</span>
+                <select
+                  value={intervalMs}
+                  onChange={(event) =>
+                    setIntervalMs(Number(event.target.value))
+                  }
+                >
+                  {INTERVAL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="settings-field">
+                <span>Umbral CPU</span>
+                <div className="settings-input">
+                  <input
+                    type="range"
+                    min={20}
+                    max={100}
+                    value={cpuThreshold}
+                    onChange={(event) =>
+                      handleThresholdChange(setCpuThreshold)(
+                        Number(event.target.value)
+                      )
+                    }
+                  />
+                  <input
+                    type="number"
+                    min={20}
+                    max={100}
+                    value={cpuThreshold}
+                    onChange={(event) =>
+                      handleThresholdChange(setCpuThreshold)(
+                        Number(event.target.value)
+                      )
+                    }
+                  />
+                  <span>%</span>
+                </div>
+              </label>
+              <label className="settings-field">
+                <span>Umbral RAM</span>
+                <div className="settings-input">
+                  <input
+                    type="range"
+                    min={20}
+                    max={100}
+                    value={ramThreshold}
+                    onChange={(event) =>
+                      handleThresholdChange(setRamThreshold)(
+                        Number(event.target.value)
+                      )
+                    }
+                  />
+                  <input
+                    type="number"
+                    min={20}
+                    max={100}
+                    value={ramThreshold}
+                    onChange={(event) =>
+                      handleThresholdChange(setRamThreshold)(
+                        Number(event.target.value)
+                      )
+                    }
+                  />
+                  <span>%</span>
+                </div>
+              </label>
+              <label className="settings-field">
+                <span>Umbral Disco</span>
+                <div className="settings-input">
+                  <input
+                    type="range"
+                    min={20}
+                    max={100}
+                    value={diskThreshold}
+                    onChange={(event) =>
+                      handleThresholdChange(setDiskThreshold)(
+                        Number(event.target.value)
+                      )
+                    }
+                  />
+                  <input
+                    type="number"
+                    min={20}
+                    max={100}
+                    value={diskThreshold}
+                    onChange={(event) =>
+                      handleThresholdChange(setDiskThreshold)(
+                        Number(event.target.value)
+                      )
+                    }
+                  />
+                  <span>%</span>
+                </div>
+              </label>
             </div>
-          </label>
-          <label className="settings-field">
-            <span>Umbral RAM</span>
-            <div className="settings-input">
-              <input
-                type="range"
-                min={20}
-                max={100}
-                value={ramThreshold}
-                onChange={(event) =>
-                  handleThresholdChange(setRamThreshold)(
-                    Number(event.target.value)
-                  )
-                }
-              />
-              <input
-                type="number"
-                min={20}
-                max={100}
-                value={ramThreshold}
-                onChange={(event) =>
-                  handleThresholdChange(setRamThreshold)(
-                    Number(event.target.value)
-                  )
-                }
-              />
-              <span>%</span>
+          </div>
+
+          <div className="settings-card">
+            <h3>Temas</h3>
+            <div className="settings-grid">
+              <label className="settings-field">
+                <span>Modo visual</span>
+                <select
+                  value={themeMode}
+                  onChange={(event) =>
+                    handleThemeModeChange(event.target.value as ThemeMode)
+                  }
+                >
+                  <option value="dark">Oscuro</option>
+                  <option value="light">Claro</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+              </label>
+              {themeMode === "custom" ? (
+                <div className="theme-grid">
+                  <label className="theme-field">
+                    <span>Fondo</span>
+                    <input
+                      type="color"
+                      value={customTheme.bg}
+                      onChange={(event) =>
+                        handleCustomThemeChange("bg", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label className="theme-field">
+                    <span>Paneles</span>
+                    <input
+                      type="color"
+                      value={customTheme.panel}
+                      onChange={(event) =>
+                        handleCustomThemeChange("panel", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label className="theme-field">
+                    <span>Texto</span>
+                    <input
+                      type="color"
+                      value={customTheme.text}
+                      onChange={(event) =>
+                        handleCustomThemeChange("text", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label className="theme-field">
+                    <span>Secundario</span>
+                    <input
+                      type="color"
+                      value={customTheme.muted}
+                      onChange={(event) =>
+                        handleCustomThemeChange("muted", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label className="theme-field">
+                    <span>Divisores</span>
+                    <input
+                      type="color"
+                      value={customTheme.border}
+                      onChange={(event) =>
+                        handleCustomThemeChange("border", event.target.value)
+                      }
+                    />
+                  </label>
+                  <label className="theme-field">
+                    <span>Acento</span>
+                    <input
+                      type="color"
+                      value={customTheme.accent}
+                      onChange={(event) =>
+                        handleCustomThemeChange("accent", event.target.value)
+                      }
+                    />
+                  </label>
+                </div>
+              ) : null}
             </div>
-          </label>
+          </div>
+
+          <div className="settings-card">
+            <h3>Layout</h3>
+            <div className="settings-grid">
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={layoutUnlocked}
+                  onChange={() => setLayoutUnlocked((prev) => !prev)}
+                />
+                <span>Desbloquear drag & resize</span>
+              </label>
+              <p className="settings-hint">
+                Arrastra las tarjetas para reorganizarlas y ajusta su tamaño
+                desde la esquina inferior.
+              </p>
+            </div>
+          </div>
+
+          <div className="settings-card">
+            <h3>Notificaciones</h3>
+            <div className="settings-grid">
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={notificationsEnabled}
+                  onChange={toggleNotifications}
+                />
+                <span>Activar notificaciones</span>
+              </label>
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={notificationSoundEnabled}
+                  onChange={() => setNotificationSoundEnabled((prev) => !prev)}
+                  disabled={!notificationsEnabled}
+                />
+                <span>Reproducir sonido</span>
+              </label>
+              <label className="settings-field">
+                <span>Enfriamiento</span>
+                <div className="settings-input">
+                  <input
+                    type="range"
+                    min={15000}
+                    max={180000}
+                    step={15000}
+                    value={notificationCooldownMs}
+                    onChange={(event) =>
+                      setNotificationCooldownMs(Number(event.target.value))
+                    }
+                    disabled={!notificationsEnabled}
+                  />
+                  <input
+                    type="number"
+                    min={15000}
+                    max={180000}
+                    step={15000}
+                    value={notificationCooldownMs}
+                    onChange={(event) =>
+                      setNotificationCooldownMs(Number(event.target.value))
+                    }
+                    disabled={!notificationsEnabled}
+                  />
+                  <span>ms</span>
+                </div>
+              </label>
+              <div className="notification-channels">
+                <span>Canales</span>
+                <div>
+                  <button
+                    type="button"
+                    className={`channel-pill ${
+                      notificationChannels.cpu ? "active" : ""
+                    }`}
+                    onClick={() => handleChannelToggle("cpu")}
+                    disabled={!notificationsEnabled}
+                  >
+                    CPU
+                  </button>
+                  <button
+                    type="button"
+                    className={`channel-pill ${
+                      notificationChannels.ram ? "active" : ""
+                    }`}
+                    onClick={() => handleChannelToggle("ram")}
+                    disabled={!notificationsEnabled}
+                  >
+                    RAM
+                  </button>
+                  <button
+                    type="button"
+                    className={`channel-pill ${
+                      notificationChannels.disk ? "active" : ""
+                    }`}
+                    onClick={() => handleChannelToggle("disk")}
+                    disabled={!notificationsEnabled}
+                  >
+                    Disco
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="settings-card">
+            <h3>Atajos de teclado</h3>
+            <div className="settings-grid">
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={shortcutsEnabled}
+                  onChange={() => setShortcutsEnabled((prev) => !prev)}
+                />
+                <span>Habilitar atajos</span>
+              </label>
+              <ul className="shortcut-list">
+                {SHORTCUTS.map((shortcut) => (
+                  <li key={shortcut.keys}>
+                    <kbd>{shortcut.keys}</kbd>
+                    <span>{shortcut.description}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -522,142 +1416,7 @@ function App() {
       ) : null}
 
       <section className="metrics">
-        <article className="metric-card">
-          <div className="metric-header">
-            <h2>CPU</h2>
-            <span className="metric-pill" style={{ backgroundColor: cpuColor }}>
-              {formatPercent(cpu)}%
-            </span>
-          </div>
-          <div className="metric-stats">
-            <div className="metric-stat">
-              <span>Promedio</span>
-              <strong>{formatPercent(cpuStats.average)}%</strong>
-            </div>
-            <div className="metric-stat">
-              <span>Pico</span>
-              <strong>{formatPercent(cpuStats.peak)}%</strong>
-            </div>
-          </div>
-          <div className="metric-bar">
-            <span
-              className="metric-bar-fill"
-              style={{ width: `${cpu}%`, backgroundColor: cpuColor }}
-            />
-          </div>
-          <UsageChart
-            samples={cpuHistory}
-            color={cpuColor}
-            label="cpu"
-            eventMarkers={cpuEventMarkers}
-            tooltip={`CPU ${formatPercent(
-              cpuStats.latest
-            )}% · Promedio ${formatPercent(
-              cpuStats.average
-            )}% · Pico ${formatPercent(
-              cpuStats.peak
-            )}% · Últimos ${HISTORY_WINDOW_MINUTES} min`}
-          />
-        </article>
-
-        <article className="metric-card">
-          <div className="metric-header">
-            <h2>CPU por núcleo</h2>
-            <span className="metric-pill" style={{ backgroundColor: cpuColor }}>
-              {cpuCores.length} núcleos
-            </span>
-          </div>
-          <div className="core-grid">
-            {cpuCores.map((coreValue, index) => {
-              const coreColor = getLoadColor(coreValue);
-              return (
-                <div key={`core-${index}`} className="core-card">
-                  <div className="core-header">
-                    <span>Núcleo {index + 1}</span>
-                    <strong>{formatPercent(coreValue)}%</strong>
-                  </div>
-                  <div className="metric-bar">
-                    <span
-                      className="metric-bar-fill"
-                      style={{
-                        width: `${coreValue}%`,
-                        backgroundColor: coreColor,
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </article>
-
-        <article className="metric-card">
-          <div className="metric-header">
-            <h2>RAM</h2>
-            <span className="metric-pill" style={{ backgroundColor: ramColor }}>
-              {formatPercent(ram)}%
-            </span>
-          </div>
-          <div className="metric-stats">
-            <div className="metric-stat">
-              <span>Promedio</span>
-              <strong>{formatPercent(ramStats.average)}%</strong>
-            </div>
-            <div className="metric-stat">
-              <span>Pico</span>
-              <strong>{formatPercent(ramStats.peak)}%</strong>
-            </div>
-          </div>
-          <div className="metric-bar">
-            <span
-              className="metric-bar-fill"
-              style={{ width: `${ram}%`, backgroundColor: ramColor }}
-            />
-          </div>
-          <UsageChart
-            samples={ramHistory}
-            color={ramColor}
-            label="ram"
-            eventMarkers={ramEventMarkers}
-            tooltip={`RAM ${formatPercent(
-              ramStats.latest
-            )}% · Promedio ${formatPercent(
-              ramStats.average
-            )}% · Pico ${formatPercent(
-              ramStats.peak
-            )}% · Últimos ${HISTORY_WINDOW_MINUTES} min`}
-          />
-        </article>
-
-        <article className="metric-card">
-          <div className="metric-header">
-            <h2>Disco</h2>
-            <span
-              className="metric-pill"
-              style={{ backgroundColor: diskColor }}
-            >
-              {formatPercent(disk)}%
-            </span>
-          </div>
-          <div className="metric-bar">
-            <span
-              className="metric-bar-fill"
-              style={{ width: `${disk}%`, backgroundColor: diskColor }}
-            />
-          </div>
-          <UsageChart
-            samples={diskHistory}
-            color={diskColor}
-            label="disk"
-            tooltip={`Disco ${formatPercent(
-              diskStats.latest
-            )}% · Promedio ${formatPercent(
-              diskStats.average
-            )}% · Pico ${formatPercent(
-              diskStats.peak
-            )}% · Últimos ${HISTORY_WINDOW_MINUTES} min`}
-          />
-        </article>
+        {metricOrder.map((id) => renderMetricCard(id))}
       </section>
 
       <section className="processes-panel">
