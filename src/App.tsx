@@ -34,7 +34,7 @@ function App() {
   const [cpu, setCpu] = useState(0);
   const [ram, setRam] = useState(0);
   const [disk, setDisk] = useState(0);
-  const [cpuCores, setCpuCores] = useState<Number[]>([]);
+  const [cpuCores, setCpuCores] = useState<number[]>([]);
   const [cpuHistory, setCpuHistory] = useState<UsageSample[]>([]);
   const [ramHistory, setRamHistory] = useState<UsageSample[]>([]);
   const [diskHistory, setDiskHistory] = useState<UsageSample[]>([]);
