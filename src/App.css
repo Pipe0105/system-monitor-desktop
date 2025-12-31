@@ -33,6 +33,54 @@
   gap: 2rem;
 }
 
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.control-group select {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  padding: 0.45rem 0.75rem;
+  border-radius: 10px;
+}
+
+.control-group.toggle {
+  align-items: flex-start;
+}
+
+.toggle-button {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.toggle-button[aria-pressed="true"] {
+  background: rgba(52, 211, 153, 0.2);
+  border-color: rgba(52, 211, 153, 0.6);
+  color: var(--text);
+}
+
+.toggle-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .eyebrow {
   text-transform: uppercase;
   font-size: 0.75rem;
@@ -44,6 +92,16 @@
 .subtitle {
   margin: 0.35rem 0 0;
   color: var(--muted);
+}
+
+.tray-hint {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--text);
+  border: 1px dashed rgba(59, 130, 246, 0.4);
+  font-size: 0.9rem;
 }
 
 .theme-toggle {
@@ -99,19 +157,45 @@
   transition: width 0.4s ease;
 }
 
-.history {
-  display: grid;
-  grid-auto-flow: column;
-  align-items: end;
-  gap: 4px;
-  height: 80px;
-  padding-top: 0.5rem;
+.usage-chart {
+  position: relative;
+  height: 120px;
+  border-radius: 12px;
+  background: rgba(148, 163, 184, 0.12);
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.18);
 }
 
-.history-bar {
+.usage-chart svg {
   width: 100%;
-  border-radius: 4px 4px 0 0;
-  opacity: 0.7;
+  height: 100%;
+}
+
+.usage-chart-line {
+  fill: none;
+  stroke-width: 2;
+}
+
+.usage-chart-area {
+  stroke: none;
+}
+
+.usage-chart-points {
+  fill: none;
+  stroke-width: 1;
+  opacity: 0.45;
+  stroke-dasharray: 4 6;
+}
+
+.usage-chart-grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: repeat(4, 1fr);
+}
+
+.usage-chart-grid span {
+  border-top: 1px dashed rgba(148, 163, 184, 0.2);
 }
 
 @media (max-width: 720px) {

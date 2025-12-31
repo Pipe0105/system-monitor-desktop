@@ -6,6 +6,11 @@ type UsageSample = {
   value: number;
 };
 
+type ChartPoint = {
+  x: number;
+  y: number;
+};
+
 const HISTORY_LIMIT = 60;
 const INTERVAL_OPTIONS = [
   { label: "1s", value: 1000 },
@@ -30,6 +35,82 @@ const getLoadColor = (value: number) => {
 
 const formatPercent = (value: number) => value.toFixed(1);
 
+const buildChartPoints = (samples: UsageSample[]): ChartPoint[] => {
+  if (samples.length === 0) {
+    return [];
+  }
+
+  const lastIndex = Math.max(samples.length - 1, 1);
+  return samples.map((sample, index) => ({
+    x: (index / lastIndex) * 100,
+    y: 100 - clampPercent(sample.value),
+  }));
+};
+
+const pointsToString = (points: ChartPoint[]) =>
+  points.map((point) => `${point.x},${point.y}`).join(" ");
+
+const buildLinePath = (points: ChartPoint[]) =>
+  points
+    .map((point, index) =>
+      index === 0 ? `M ${point.x} ${point.y}` : `L ${point.x} ${point.y}`
+    )
+    .join(" ");
+
+const buildAreaPath = (points: ChartPoint[]) => {
+  if (points.length === 0) {
+    return "";
+  }
+
+  const linePath = buildLinePath(points);
+  const first = points[0];
+  const last = points[points.length - 1];
+
+  return `${linePath} L ${last.x} 100 L ${first.x} 100 Z`;
+};
+
+type UsageChartProps = {
+  samples: UsageSample[];
+  color: string;
+  label: string;
+};
+
+const UsageChart = ({ samples, color, label }: UsageChartProps) => {
+  const points = buildChartPoints(samples);
+  const linePath = buildLinePath(points);
+  const areaPath = buildAreaPath(points);
+
+  return (
+    <div className="usage-chart" aria-label={`Histórico ${label}`}>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id={`fill-${label}`} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.05" />
+          </linearGradient>
+        </defs>
+        <path
+          className="usage-chart-area"
+          d={areaPath}
+          fill={`url(#fill-${label})`}
+        />
+        <path className="usage-chart-line" d={linePath} stroke={color} />
+        <polyline
+          className="usage-chart-points"
+          points={pointsToString(points)}
+          stroke={color}
+        />
+      </svg>
+      <div className="usage-chart-grid" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+      </div>
+    </div>
+  );
+};
+
 function App() {
   const [cpu, setCpu] = useState(0);
   const [ram, setRam] = useState(0);
@@ -40,6 +121,8 @@ function App() {
   const [diskHistory, setDiskHistory] = useState<UsageSample[]>([]);
   const [darkMode, setDarkMode] = useState(true);
   const [intervalMs, setIntervalMs] = useState(INTERVAL_OPTIONS[0].value);
+  const [autoStartEnabled, setAutoStartEnabled] = useState(false);
+  const [autoStartAvailable, setAutoStartAvailable] = useState(false);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("system-monitor-theme");
@@ -54,6 +137,15 @@ function App() {
       if (!Number.isNaN(parsed)) {
         setIntervalMs(parsed);
       }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (window.api.getAutoStartStatus) {
+      window.api.getAutoStartStatus().then((status) => {
+        setAutoStartEnabled(status.enabled);
+        setAutoStartAvailable(status.available);
+      });
     }
   }, []);
 
@@ -99,6 +191,16 @@ function App() {
   const diskColor = useMemo(() => getLoadColor(disk), [disk]);
   const hasAlert = cpu >= ALERT_THRESHOLD;
 
+  const handleAutoStartToggle = async () => {
+    if (!window.api.setAutoStart) {
+      return;
+    }
+
+    const status = await window.api.setAutoStart(!autoStartEnabled);
+    setAutoStartEnabled(status.enabled);
+    setAutoStartAvailable(status.available);
+  };
+
   return (
     <div className="app">
       <header className="app-header">
@@ -123,6 +225,19 @@ function App() {
               ))}
             </select>
           </label>
+
+          <label className="control-group toggle">
+            <span>Auto-start Windows</span>
+            <button
+              type="button"
+              className="toggle-button"
+              onClick={handleAutoStartToggle}
+              disabled={!autoStartAvailable}
+              aria-pressed={autoStartEnabled}
+            >
+              {autoStartEnabled ? "Activo" : "Inactivo"}
+            </button>
+          </label>
           <button
             className="theme-toggle"
             type="button"
@@ -132,6 +247,10 @@ function App() {
           </button>
         </div>
       </header>
+
+      <p className="tray-hint">
+        Minimiza la ventana para enviarla a la bandeja del sistema.
+      </p>
 
       {hasAlert ? (
         <div className="alert" role="alert">
@@ -154,18 +273,7 @@ function App() {
               style={{ width: `${cpu}%`, backgroundColor: cpuColor }}
             />
           </div>
-          <div className="history">
-            {cpuHistory.map((sample) => (
-              <span
-                key={sample.timestamp}
-                className="history-bar"
-                style={{
-                  height: `${sample.value}%`,
-                  backgroundColor: cpuColor,
-                }}
-              />
-            ))}
-          </div>
+          <UsageChart samples={cpuHistory} color={cpuColor} label="cpu" />
         </article>
 
         <article className="metric-card">
@@ -212,18 +320,7 @@ function App() {
               style={{ width: `${ram}%`, backgroundColor: ramColor }}
             />
           </div>
-          <div className="history">
-            {ramHistory.map((sample) => (
-              <span
-                key={sample.timestamp}
-                className="history-bar"
-                style={{
-                  height: `${sample.value}%`,
-                  backgroundColor: ramColor,
-                }}
-              />
-            ))}
-          </div>
+          <UsageChart samples={ramHistory} color={ramColor} label="ram" />
         </article>
 
         <article className="metric-card">
@@ -242,18 +339,7 @@ function App() {
               style={{ width: `${disk}%`, backgroundColor: diskColor }}
             />
           </div>
-          <div className="history">
-            {diskHistory.map((sample) => (
-              <span
-                key={sample.timestamp}
-                className="history-bar"
-                style={{
-                  height: `${sample.value}%`,
-                  backgroundColor: diskColor,
-                }}
-              />
-            ))}
-          </div>
+          <UsageChart samples={diskHistory} color={diskColor} label="disk" />
         </article>
       </section>
     </div>
