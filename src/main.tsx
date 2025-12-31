@@ -3,8 +3,10 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./App.tsx";
 
-if (!("api" in window)) {
-  window.api = {
+const windowWithApi = window as Window & { api?: Window["api"] };
+
+if (!windowWithApi.api) {
+  windowWithApi.api = {
     getSystemInfo: async () => ({
       cpu: "42.5",
       ram: "63.2",
