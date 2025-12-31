@@ -48,5 +48,8 @@ interface Window {
       enabled: boolean;
       available: boolean;
     }>;
+    setMetricsInterval?: (intervalMs: number) => Promise<{
+      intervalMs: number;
+    }>;
   };
 }

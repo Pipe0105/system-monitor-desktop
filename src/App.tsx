@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
 type UsageSample = {
@@ -185,6 +185,7 @@ function App() {
   const [settingsReady, setSettingsReady] = useState(false);
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
   const [autoStartAvailable, setAutoStartAvailable] = useState(false);
+  const fetchInFlight = useRef(false);
 
   const appendSample = (
     previous: UsageSample[],
@@ -274,26 +275,45 @@ function App() {
   }, [settingsReady, intervalMs, cpuThreshold, ramThreshold]);
 
   useEffect(() => {
-    const fetchStats = async () => {
-      const data = await window.api.getSystemInfo();
-      const nextCpu = clampPercent(Number(data.cpu));
-      const nextRam = clampPercent(Number(data.ram));
-      const nextDisk = clampPercent(Number(data.disk));
-      const timestamp = Date.now();
+    if (window.api.setMetricsInterval) {
+      window.api.setMetricsInterval(intervalMs);
+    }
+  }, [intervalMs]);
 
-      setCpu(nextCpu);
-      setRam(nextRam);
-      setDisk(nextDisk);
-      setCpuCores(data.cpuCores.map((value) => clampPercent(value)));
-      setCpuHistory((previous) => appendSample(previous, nextCpu, timestamp));
-      setRamHistory((previous) => appendSample(previous, nextRam, timestamp));
-      setDiskHistory((previous) => appendSample(previous, nextDisk, timestamp));
-      const nextProcesses = (data.processes ?? []).map((process) => ({
-        ...process,
-        cpu: clampPercent(process.cpu),
-        mem: clampPercent(process.mem),
-      }));
-      setProcesses(nextProcesses);
+  useEffect(() => {
+    const fetchStats = async () => {
+      if (fetchInFlight.current) {
+        return;
+      }
+
+      fetchInFlight.current = true;
+      try {
+        const data = await window.api.getSystemInfo();
+        const nextCpu = clampPercent(Number(data.cpu));
+        const nextRam = clampPercent(Number(data.ram));
+        const nextDisk = clampPercent(Number(data.disk));
+        const timestamp = Date.now();
+
+        setCpu(nextCpu);
+        setRam(nextRam);
+        setDisk(nextDisk);
+        setCpuCores(data.cpuCores.map((value) => clampPercent(value)));
+        setCpuHistory((previous) => appendSample(previous, nextCpu, timestamp));
+        setRamHistory((previous) => appendSample(previous, nextRam, timestamp));
+        setDiskHistory((previous) =>
+          appendSample(previous, nextDisk, timestamp)
+        );
+        const nextProcesses = (data.processes ?? []).map((process) => ({
+          ...process,
+          cpu: clampPercent(process.cpu),
+          mem: clampPercent(process.mem),
+        }));
+        setProcesses(nextProcesses);
+      } catch (error) {
+        console.error("No se pudo obtener las métricas del sistema", error);
+      } finally {
+        fetchInFlight.current = false;
+      }
     };
 
     fetchStats();

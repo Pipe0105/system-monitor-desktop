@@ -7,4 +7,6 @@ contextBridge.exposeInMainWorld("api", {
   resetConfig: () => ipcRenderer.invoke("reset-config"),
   getAutoStartStatus: () => ipcRenderer.invoke("get-auto-start-status"),
   setAutoStart: (enabled) => ipcRenderer.invoke("set-auto-start", enabled),
+  setMetricsInterval: (intervalMs) =>
+    ipcRenderer.invoke("set-metrics-interval", intervalMs),
 });
