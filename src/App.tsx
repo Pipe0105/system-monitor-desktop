@@ -11,7 +11,8 @@ type ChartPoint = {
   y: number;
 };
 
-const HISTORY_LIMIT = 60;
+const HISTORY_WINDOW_MINUTES = 10;
+const HISTORY_WINDOW_MS = HISTORY_WINDOW_MINUTES * 60 * 1000;
 const INTERVAL_OPTIONS = [
   { label: "1s", value: 1000 },
   { label: "2s", value: 2000 },
@@ -80,15 +81,27 @@ type UsageChartProps = {
   samples: UsageSample[];
   color: string;
   label: string;
+  tooltip?: string;
+  eventMarkers?: ChartPoint[];
 };
 
-const UsageChart = ({ samples, color, label }: UsageChartProps) => {
+const UsageChart = ({
+  samples,
+  color,
+  label,
+  tooltip,
+  eventMarkers = [],
+}: UsageChartProps) => {
   const points = buildChartPoints(samples);
   const linePath = buildLinePath(points);
   const areaPath = buildAreaPath(points);
 
   return (
-    <div className="usage-chart" aria-label={`Histórico ${label}`}>
+    <div
+      className="usage-chart"
+      aria-label={`Histórico ${label}`}
+      title={tooltip}
+    >
       <svg viewBox="0 0 100 100" preserveAspectRatio="none">
         <defs>
           <linearGradient id={`fill-${label}`} x1="0" x2="0" y1="0" y2="1">
@@ -96,6 +109,16 @@ const UsageChart = ({ samples, color, label }: UsageChartProps) => {
             <stop offset="100%" stopColor={color} stopOpacity="0.05" />
           </linearGradient>
         </defs>
+        {eventMarkers.map((point, index) => (
+          <line
+            key={`event-${label}-${index}`}
+            className="usage-chart-event"
+            x1={point.x}
+            x2={point.x}
+            y1={0}
+            y2={100}
+          />
+        ))}
         <path
           className="usage-chart-area"
           d={areaPath}
@@ -107,6 +130,15 @@ const UsageChart = ({ samples, color, label }: UsageChartProps) => {
           points={pointsToString(points)}
           stroke={color}
         />
+        {eventMarkers.map((point, index) => (
+          <circle
+            key={`event-dot-${label}-${index}`}
+            className="usage-chart-event-dot"
+            cx={point.x}
+            cy={point.y}
+            r={2}
+          />
+        ))}
       </svg>
       <div className="usage-chart-grid" aria-hidden="true">
         <span />
@@ -137,6 +169,48 @@ function App() {
   const [settingsReady, setSettingsReady] = useState(false);
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
   const [autoStartAvailable, setAutoStartAvailable] = useState(false);
+
+  const appendSample = (
+    previous: UsageSample[],
+    value: number,
+    timestamp: number
+  ) =>
+    [...previous, { timestamp, value }].filter(
+      (sample) => sample.timestamp >= timestamp - HISTORY_WINDOW_MS
+    );
+
+  const calculateStats = (samples: UsageSample[]) => {
+    if (samples.length === 0) {
+      return { average: 0, peak: 0, latest: 0 };
+    }
+
+    const total = samples.reduce((sum, sample) => sum + sample.value, 0);
+    const peak = samples.reduce(
+      (max, sample) => Math.max(max, sample.value),
+      0
+    );
+    const latest = samples[samples.length - 1]?.value ?? 0;
+
+    return { average: total / samples.length, peak, latest };
+  };
+
+  const buildEventMarkers = (samples: UsageSample[], threshold: number) => {
+    if (samples.length === 0) {
+      return [];
+    }
+
+    const lastIndex = Math.max(samples.length - 1, 1);
+
+    return samples.reduce<ChartPoint[]>((markers, sample, index) => {
+      if (sample.value >= threshold) {
+        markers.push({
+          x: (index / lastIndex) * 100,
+          y: 100 - clampPercent(sample.value),
+        });
+      }
+      return markers;
+    }, []);
+  };
 
   useEffect(() => {
     const stored = window.localStorage.getItem("system-monitor-theme");
@@ -195,15 +269,9 @@ function App() {
       setRam(nextRam);
       setDisk(nextDisk);
       setCpuCores(data.cpuCores.map((value) => clampPercent(value)));
-      setCpuHistory((previous) =>
-        [...previous, { timestamp, value: nextCpu }].slice(-HISTORY_LIMIT)
-      );
-      setRamHistory((previous) =>
-        [...previous, { timestamp, value: nextRam }].slice(-HISTORY_LIMIT)
-      );
-      setDiskHistory((previous) =>
-        [...previous, { timestamp, value: nextDisk }].slice(-HISTORY_LIMIT)
-      );
+      setCpuHistory((previous) => appendSample(previous, nextCpu, timestamp));
+      setRamHistory((previous) => appendSample(previous, nextRam, timestamp));
+      setDiskHistory((previous) => appendSample(previous, nextDisk, timestamp));
     };
 
     fetchStats();
@@ -215,6 +283,17 @@ function App() {
   const cpuColor = useMemo(() => getLoadColor(cpu), [cpu]);
   const ramColor = useMemo(() => getLoadColor(ram), [ram]);
   const diskColor = useMemo(() => getLoadColor(disk), [disk]);
+  const cpuStats = useMemo(() => calculateStats(cpuHistory), [cpuHistory]);
+  const ramStats = useMemo(() => calculateStats(ramHistory), [ramHistory]);
+  const diskStats = useMemo(() => calculateStats(diskHistory), [diskHistory]);
+  const cpuEventMarkers = useMemo(
+    () => buildEventMarkers(cpuHistory, cpuThreshold),
+    [cpuHistory, cpuThreshold]
+  );
+  const ramEventMarkers = useMemo(
+    () => buildEventMarkers(ramHistory, ramThreshold),
+    [ramHistory, ramThreshold]
+  );
   const alerts = [
     cpu >= cpuThreshold
       ? `CPU encima del ${cpuThreshold}% (${formatPercent(cpu)}%)`
@@ -263,7 +342,7 @@ function App() {
           <p className="eyebrow">Actualización en tiempo real</p>
           <h1>System Monitor</h1>
           <p className="subtitle">
-            Últimas {HISTORY_LIMIT} muestras de actividad.
+            Últimos {HISTORY_WINDOW_MINUTES} min de actividad.
           </p>
         </div>
         <div className="header-controls">
@@ -399,13 +478,35 @@ function App() {
               {formatPercent(cpu)}%
             </span>
           </div>
+          <div className="metric-stats">
+            <div className="metric-stat">
+              <span>Promedio</span>
+              <strong>{formatPercent(cpuStats.average)}%</strong>
+            </div>
+            <div className="metric-stat">
+              <span>Pico</span>
+              <strong>{formatPercent(cpuStats.peak)}%</strong>
+            </div>
+          </div>
           <div className="metric-bar">
             <span
               className="metric-bar-fill"
               style={{ width: `${cpu}%`, backgroundColor: cpuColor }}
             />
           </div>
-          <UsageChart samples={cpuHistory} color={cpuColor} label="cpu" />
+          <UsageChart
+            samples={cpuHistory}
+            color={cpuColor}
+            label="cpu"
+            eventMarkers={cpuEventMarkers}
+            tooltip={`CPU ${formatPercent(
+              cpuStats.latest
+            )}% · Promedio ${formatPercent(
+              cpuStats.average
+            )}% · Pico ${formatPercent(
+              cpuStats.peak
+            )}% · Últimos ${HISTORY_WINDOW_MINUTES} min`}
+          />
         </article>
 
         <article className="metric-card">
@@ -446,13 +547,35 @@ function App() {
               {formatPercent(ram)}%
             </span>
           </div>
+          <div className="metric-stats">
+            <div className="metric-stat">
+              <span>Promedio</span>
+              <strong>{formatPercent(ramStats.average)}%</strong>
+            </div>
+            <div className="metric-stat">
+              <span>Pico</span>
+              <strong>{formatPercent(ramStats.peak)}%</strong>
+            </div>
+          </div>
           <div className="metric-bar">
             <span
               className="metric-bar-fill"
               style={{ width: `${ram}%`, backgroundColor: ramColor }}
             />
           </div>
-          <UsageChart samples={ramHistory} color={ramColor} label="ram" />
+          <UsageChart
+            samples={ramHistory}
+            color={ramColor}
+            label="ram"
+            eventMarkers={ramEventMarkers}
+            tooltip={`RAM ${formatPercent(
+              ramStats.latest
+            )}% · Promedio ${formatPercent(
+              ramStats.average
+            )}% · Pico ${formatPercent(
+              ramStats.peak
+            )}% · Últimos ${HISTORY_WINDOW_MINUTES} min`}
+          />
         </article>
 
         <article className="metric-card">
@@ -471,7 +594,18 @@ function App() {
               style={{ width: `${disk}%`, backgroundColor: diskColor }}
             />
           </div>
-          <UsageChart samples={diskHistory} color={diskColor} label="disk" />
+          <UsageChart
+            samples={diskHistory}
+            color={diskColor}
+            label="disk"
+            tooltip={`Disco ${formatPercent(
+              diskStats.latest
+            )}% · Promedio ${formatPercent(
+              diskStats.average
+            )}% · Pico ${formatPercent(
+              diskStats.peak
+            )}% · Últimos ${HISTORY_WINDOW_MINUTES} min`}
+          />
         </article>
       </section>
     </div>
