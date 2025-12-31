@@ -19,9 +19,16 @@ const INTERVAL_OPTIONS = [
   { label: "10s", value: 10000 },
 ];
 
-const ALERT_THRESHOLD = 80;
+const DEFAULT_CONFIG = {
+  intervalMs: INTERVAL_OPTIONS[0].value,
+  thresholds: {
+    cpu: 80,
+    ram: 80,
+  },
+};
 
 const clampPercent = (value: number) => Math.min(Math.max(value, 0), 100);
+const clampThreshold = (value: number) => clampPercent(value);
 
 const getLoadColor = (value: number) => {
   if (value < 50) {
@@ -120,7 +127,14 @@ function App() {
   const [ramHistory, setRamHistory] = useState<UsageSample[]>([]);
   const [diskHistory, setDiskHistory] = useState<UsageSample[]>([]);
   const [darkMode, setDarkMode] = useState(true);
-  const [intervalMs, setIntervalMs] = useState(INTERVAL_OPTIONS[0].value);
+  const [intervalMs, setIntervalMs] = useState(DEFAULT_CONFIG.intervalMs);
+  const [cpuThreshold, setCpuThreshold] = useState(
+    DEFAULT_CONFIG.thresholds.cpu
+  );
+  const [ramThreshold, setRamThreshold] = useState(
+    DEFAULT_CONFIG.thresholds.ram
+  );
+  const [settingsReady, setSettingsReady] = useState(false);
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
   const [autoStartAvailable, setAutoStartAvailable] = useState(false);
 
@@ -129,15 +143,20 @@ function App() {
     if (stored) {
       setDarkMode(stored === "dark");
     }
-    const storedInterval = window.localStorage.getItem(
-      "system-monitor-interval"
-    );
-    if (storedInterval) {
-      const parsed = Number(storedInterval);
-      if (!Number.isNaN(parsed)) {
-        setIntervalMs(parsed);
+    const loadConfig = async () => {
+      if (!window.api.getConfig) {
+        setSettingsReady(true);
+        return;
       }
-    }
+
+      const config = await window.api.getConfig();
+      setIntervalMs(config.intervalMs);
+      setCpuThreshold(config.thresholds.cpu);
+      setRamThreshold(config.thresholds.ram);
+      setSettingsReady(true);
+    };
+
+    loadConfig();
   }, []);
 
   useEffect(() => {
@@ -156,8 +175,15 @@ function App() {
   }, [darkMode]);
 
   useEffect(() => {
-    window.localStorage.setItem("system-monitor-interval", String(intervalMs));
+    if (settingsReady && window.api.saveConfig) {
+      window.api.saveConfig({
+        intervalMs,
+        thresholds: { cpu: cpuThreshold, ram: ramThreshold },
+      });
+    }
+  }, [settingsReady, intervalMs, cpuThreshold, ramThreshold]);
 
+  useEffect(() => {
     const fetchStats = async () => {
       const data = await window.api.getSystemInfo();
       const nextCpu = clampPercent(Number(data.cpu));
@@ -189,7 +215,14 @@ function App() {
   const cpuColor = useMemo(() => getLoadColor(cpu), [cpu]);
   const ramColor = useMemo(() => getLoadColor(ram), [ram]);
   const diskColor = useMemo(() => getLoadColor(disk), [disk]);
-  const hasAlert = cpu >= ALERT_THRESHOLD;
+  const alerts = [
+    cpu >= cpuThreshold
+      ? `CPU encima del ${cpuThreshold}% (${formatPercent(cpu)}%)`
+      : null,
+    ram >= ramThreshold
+      ? `RAM encima del ${ramThreshold}% (${formatPercent(ram)}%)`
+      : null,
+  ].filter(Boolean) as string[];
 
   const handleAutoStartToggle = async () => {
     if (!window.api.setAutoStart) {
@@ -201,6 +234,28 @@ function App() {
     setAutoStartAvailable(status.available);
   };
 
+  const handleThresholdChange =
+    (setter: (value: number) => void) => (value: number) => {
+      if (Number.isNaN(value)) {
+        return;
+      }
+      setter(clampThreshold(value));
+    };
+
+  const handleRestoreDefaults = async () => {
+    if (window.api.resetConfig) {
+      const config = await window.api.resetConfig();
+      setIntervalMs(config.intervalMs);
+      setCpuThreshold(config.thresholds.cpu);
+      setRamThreshold(config.thresholds.ram);
+      return;
+    }
+
+    setIntervalMs(DEFAULT_CONFIG.intervalMs);
+    setCpuThreshold(DEFAULT_CONFIG.thresholds.cpu);
+    setRamThreshold(DEFAULT_CONFIG.thresholds.ram);
+  };
+
   return (
     <div className="app">
       <header className="app-header">
@@ -208,24 +263,10 @@ function App() {
           <p className="eyebrow">Actualización en tiempo real</p>
           <h1>System Monitor</h1>
           <p className="subtitle">
-            Últimos {HISTORY_LIMIT} segundos de actividad.
+            Últimas {HISTORY_LIMIT} muestras de actividad.
           </p>
         </div>
         <div className="header-controls">
-          <label className="control-group">
-            <span>Intervalo</span>
-            <select
-              value={intervalMs}
-              onChange={(event) => setIntervalMs(Number(event.target.value))}
-            >
-              {INTERVAL_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
           <label className="control-group toggle">
             <span>Auto-start Windows</span>
             <button
@@ -252,10 +293,101 @@ function App() {
         Minimiza la ventana para enviarla a la bandeja del sistema.
       </p>
 
-      {hasAlert ? (
+      <section className="settings-panel">
+        <div className="settings-header">
+          <div>
+            <p className="eyebrow">Configuración avanzada</p>
+            <h2>Panel de ajustes</h2>
+          </div>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={handleRestoreDefaults}
+          >
+            Restaurar valores por defecto
+          </button>
+        </div>
+        <div className="settings-grid">
+          <label className="settings-field">
+            <span>Intervalo de actualización</span>
+            <select
+              value={intervalMs}
+              onChange={(event) => setIntervalMs(Number(event.target.value))}
+            >
+              {INTERVAL_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="settings-field">
+            <span>Umbral CPU</span>
+            <div className="settings-input">
+              <input
+                type="range"
+                min={20}
+                max={100}
+                value={cpuThreshold}
+                onChange={(event) =>
+                  handleThresholdChange(setCpuThreshold)(
+                    Number(event.target.value)
+                  )
+                }
+              />
+              <input
+                type="number"
+                min={20}
+                max={100}
+                value={cpuThreshold}
+                onChange={(event) =>
+                  handleThresholdChange(setCpuThreshold)(
+                    Number(event.target.value)
+                  )
+                }
+              />
+              <span>%</span>
+            </div>
+          </label>
+          <label className="settings-field">
+            <span>Umbral RAM</span>
+            <div className="settings-input">
+              <input
+                type="range"
+                min={20}
+                max={100}
+                value={ramThreshold}
+                onChange={(event) =>
+                  handleThresholdChange(setRamThreshold)(
+                    Number(event.target.value)
+                  )
+                }
+              />
+              <input
+                type="number"
+                min={20}
+                max={100}
+                value={ramThreshold}
+                onChange={(event) =>
+                  handleThresholdChange(setRamThreshold)(
+                    Number(event.target.value)
+                  )
+                }
+              />
+              <span>%</span>
+            </div>
+          </label>
+        </div>
+      </section>
+
+      {alerts.length > 0 ? (
         <div className="alert" role="alert">
-          Alerta: Cpu encima del {ALERT_THRESHOLD}% ({formatPercent(cpu)}
-          %)
+          <strong>Alerta:</strong>
+          <ul>
+            {alerts.map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+          </ul>
         </div>
       ) : null}
 

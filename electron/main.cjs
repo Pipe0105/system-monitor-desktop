@@ -8,6 +8,7 @@ const {
 } = require("electron");
 
 const path = require("path");
+const fs = require("fs/promises");
 const si = require("systeminformation");
 
 const isWindows = process.platform === "win32";
@@ -16,8 +17,66 @@ const trayIcon = nativeImage.createFromPath(
   path.join(__dirname, "assets", "tray.png")
 );
 
+const CONFIG_FILENAME = "config.json";
+const DEFAULT_CONFIG = {
+  intervalMs: 1000,
+  thresholds: {
+    cpu: 80,
+    ram: 80,
+  },
+};
+
 let mainWindow;
 let tray;
+
+const clampNumber = (value, min, max, fallback) => {
+  const parsed = Number(value);
+  if (Number.isNaN(parsed)) {
+    return fallback;
+  }
+  return Math.min(Math.max(parsed, min), max);
+};
+
+const normalizeConfig = (config = {}) => {
+  const thresholds = config.thresholds || {};
+
+  return {
+    intervalMs: clampNumber(
+      config.intervalMs,
+      500,
+      60000,
+      DEFAULT_CONFIG.intervalMs
+    ),
+    thresholds: {
+      cpu: clampNumber(thresholds.cpu, 20, 100, DEFAULT_CONFIG.thresholds.cpu),
+      ram: clampNumber(thresholds.ram, 20, 100, DEFAULT_CONFIG.thresholds.ram),
+    },
+  };
+};
+
+const getConfigPath = () => path.join(app.getPath("userData"), CONFIG_FILENAME);
+
+const readConfig = async () => {
+  try {
+    const raw = await fs.readFile(getConfigPath(), "utf8");
+    return normalizeConfig(JSON.parse(raw));
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return DEFAULT_CONFIG;
+    }
+    return DEFAULT_CONFIG;
+  }
+};
+
+const writeConfig = async (config) => {
+  const normalized = normalizeConfig(config);
+  await fs.writeFile(
+    getConfigPath(),
+    JSON.stringify(normalized, null, 2),
+    "utf8"
+  );
+  return normalized;
+};
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -102,6 +161,12 @@ ipcMain.handle("get-system-info", async () => {
     cpuCores: cpu.cpus.map((core) => Number(core.load.toFixed(1))),
   };
 });
+
+ipcMain.handle("get-config", async () => readConfig());
+
+ipcMain.handle("save-config", async (_event, config) => writeConfig(config));
+
+ipcMain.handle("reset-config", async () => writeConfig(DEFAULT_CONFIG));
 
 ipcMain.handle("get-auto-start-status", () => {
   if (!isWindows) {
