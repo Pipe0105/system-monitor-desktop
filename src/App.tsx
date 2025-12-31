@@ -299,7 +299,7 @@ function App() {
   const [notificationCooldownMs, setNotificationCooldownMs] = useState(
     safelyParseJSON(
       window.localStorage.getItem("system-monitor-notification-cooldown"),
-      DEFAULT_CONFIG.notifications.cooldownMs
+      DEFAULT_CONFIG.notification.cooldownMs
     )
   );
   const [notificationChannels, setNotificationChannels] = useState(() =>
@@ -615,6 +615,23 @@ function App() {
     return () => clearInterval(interval);
   }, [fetchStats, intervalMs]);
 
+  const toggleNotifications = useCallback(async () => {
+    const nextValue = !notificationsEnabled;
+    setNotificationsEnabled(nextValue);
+
+    if (!nextValue || !("Notification" in window)) {
+      return;
+    }
+
+    if (Notification.permission === "default") {
+      try {
+        await Notification.requestPermission();
+      } catch (error) {
+        console.warn("No se pudo solicitar permiso de notificaciones", error);
+      }
+    }
+  }, [notificationsEnabled]);
+
   useEffect(() => {
     if (!shortcutsEnabled) {
       return;
@@ -733,6 +750,7 @@ function App() {
     setIntervalMs(DEFAULT_CONFIG.intervalMs);
     setCpuThreshold(DEFAULT_CONFIG.thresholds.cpu);
     setRamThreshold(DEFAULT_CONFIG.thresholds.ram);
+    setDiskThreshold(DEFAULT_CONFIG.thresholds.disk);
   };
 
   const handleMetricDragStart = (id: MetricCardId) => {
@@ -777,23 +795,6 @@ function App() {
       [key]: value,
     }));
   };
-
-  const toggleNotifications = useCallback(async () => {
-    const nextValue = !notificationsEnabled;
-    setNotificationsEnabled(nextValue);
-
-    if (!nextValue || !("Notification" in window)) {
-      return;
-    }
-
-    if (Notification.permission === "default") {
-      try {
-        await Notification.requestPermission();
-      } catch (error) {
-        console.warn("No se pudo solicitar permiso de notificaciones", error);
-      }
-    }
-  }, [notificationsEnabled]);
 
   const handleChannelToggle = (channel: keyof NotificationChannels) => {
     setNotificationChannels((prev) => ({

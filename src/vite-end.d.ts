@@ -18,6 +18,7 @@ interface Window {
       thresholds: {
         cpu: number;
         ram: number;
+        disk: number;
       };
     }>;
     saveConfig?: (config: {
@@ -25,12 +26,14 @@ interface Window {
       thresholds: {
         cpu: number;
         ram: number;
+        disk: number;
       };
     }) => Promise<{
       intervalMs: number;
       thresholds: {
         cpu: number;
         ram: number;
+        disk: number;
       };
     }>;
     resetConfig?: () => Promise<{
@@ -38,6 +41,7 @@ interface Window {
       thresholds: {
         cpu: number;
         ram: number;
+        disk: number;
       };
     }>;
     getAutoStartStatus?: () => Promise<{
