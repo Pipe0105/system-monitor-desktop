@@ -1,0 +1,161 @@
+{
+  "app": {
+    "realtime": "Actualización en tiempo real",
+    "title": "System Monitor",
+    "subtitle": "Últimos {minutes} min de actividad.",
+    "trayHint": "Minimiza la ventana para enviarla a la bandeja del sistema.",
+    "autoStartLabel": "Auto-start Windows",
+    "autoStartActive": "Activo",
+    "autoStartInactive": "Inactivo",
+    "themeToggle": {
+      "dark": "🌙 Modo oscuro",
+      "light": "☀️ Modo claro",
+      "custom": "🎨 Tema personalizado"
+    }
+  },
+  "settings": {
+    "eyebrow": "Configuración avanzada",
+    "title": "Panel de ajustes",
+    "restoreDefaults": "Restaurar valores por defecto",
+    "measurements": "Ajustes de medición",
+    "interval": "Intervalo de actualización",
+    "threshold": {
+      "cpu": "Umbral CPU",
+      "ram": "Umbral RAM",
+      "disk": "Umbral Disco"
+    },
+    "themes": {
+      "title": "Temas",
+      "mode": "Modo visual",
+      "options": {
+        "dark": "Oscuro",
+        "light": "Claro",
+        "custom": "Personalizado"
+      },
+      "fields": {
+        "bg": "Fondo",
+        "panel": "Paneles",
+        "text": "Texto",
+        "muted": "Secundario",
+        "border": "Divisores",
+        "accent": "Acento"
+      }
+    },
+    "layout": {
+      "title": "Layout",
+      "unlock": "Desbloquear drag & resize",
+      "hint": "Arrastra las tarjetas para reorganizarlas y ajusta su tamaño desde la esquina inferior.",
+      "presetLabel": "Preset de layout",
+      "presetHint": "Aplica una distribución rápida para las tarjetas.",
+      "customPreset": "Personalizado"
+    },
+    "notifications": {
+      "title": "Notificaciones",
+      "enable": "Activar notificaciones",
+      "sound": "Reproducir sonido",
+      "cooldown": "Enfriamiento",
+      "channels": "Canales"
+    },
+    "shortcuts": {
+      "title": "Atajos de teclado",
+      "enable": "Habilitar atajos"
+    },
+    "profile": {
+      "title": "Perfiles de uso",
+      "label": "Perfil activo",
+      "hint": "Cambia el intervalo y los umbrales según tu escenario de uso."
+    },
+    "language": {
+      "title": "Idioma",
+      "label": "Idioma de la interfaz",
+      "options": {
+        "es": "Español",
+        "en": "English"
+      }
+    }
+  },
+  "metrics": {
+    "average": "Promedio",
+    "peak": "Pico",
+    "cpu": "CPU",
+    "ram": "RAM",
+    "disk": "Disco",
+    "cores": "CPU por núcleo",
+    "coreCount": "{count} núcleos",
+    "coreLabel": "Núcleo {index}"
+  },
+  "charts": {
+    "historyAria": "Histórico {label}",
+    "tooltip": "{label} {latest}% · Promedio {average}% · Pico {peak}% · Últimos {minutes} min"
+  },
+  "alerts": {
+    "label": "Alerta:",
+    "cpu": "CPU encima del {threshold}% ({value}%)",
+    "ram": "RAM encima del {threshold}% ({value}%)",
+    "disk": "Disco encima del {threshold}% ({value}%)"
+  },
+  "processes": {
+    "eyebrow": "Monitor por procesos",
+    "title": "Procesos activos",
+    "subtitle": "Top 5 por CPU/RAM y detalle de los procesos más demandantes.",
+    "updateEvery": "Actualización cada {seconds}s",
+    "count": "{count} procesos en vista",
+    "topCpu": "Top CPU",
+    "topRam": "Top RAM",
+    "pid": "PID {pid}",
+    "table": {
+      "process": "Proceso",
+      "pid": "PID",
+      "cpu": "CPU",
+      "ram": "RAM",
+      "memory": "Memoria"
+    },
+    "heavy": "⚠️ Alto consumo"
+  },
+  "shortcuts": {
+    "toggleTheme": "Cambiar entre tema oscuro y claro",
+    "refresh": "Actualizar métricas al instante",
+    "toggleLayout": "Bloquear o desbloquear el layout",
+    "toggleNotifications": "Activar o silenciar notificaciones",
+    "openSettings": "Ir al panel de ajustes"
+  },
+  "profiles": {
+    "default": {
+      "name": "Default",
+      "description": "Equilibrado para el día a día con refresco rápido."
+    },
+    "gaming": {
+      "name": "Gaming",
+      "description": "Umbrales altos y refresco rápido para sesiones intensas."
+    },
+    "work": {
+      "name": "Trabajo",
+      "description": "Un balance estable para multitarea y productividad."
+    },
+    "ahorro": {
+      "name": "Ahorro",
+      "description": "Reduce el refresco para consumir menos recursos."
+    }
+  },
+  "layouts": {
+    "default": {
+      "name": "Predeterminado",
+      "description": "Orden balanceado con métricas principales primero."
+    },
+    "focus": {
+      "name": "Enfoque de rendimiento",
+      "description": "CPU y RAM al inicio para detectar picos rápidos."
+    },
+    "balanced": {
+      "name": "Diagnóstico",
+      "description": "Visión equilibrada con disco y núcleos visibles."
+    },
+    "custom": {
+      "name": "Personalizado"
+    }
+  },
+  "notifications": {
+    "alertTitle": "Alerta {label}",
+    "alertBody": "{label} superó el {threshold}% (ahora {value}%)."
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "app": {
+    "realtime": "Real-time updates",
+    "title": "System Monitor",
+    "subtitle": "Last {minutes} min of activity.",
+    "trayHint": "Minimize the window to send it to the system tray.",
+    "autoStartLabel": "Auto-start Windows",
+    "autoStartActive": "Enabled",
+    "autoStartInactive": "Disabled",
+    "themeToggle": {
+      "dark": "🌙 Dark mode",
+      "light": "☀️ Light mode",
+      "custom": "🎨 Custom theme"
+    }
+  },
+  "settings": {
+    "eyebrow": "Advanced settings",
+    "title": "Settings panel",
+    "restoreDefaults": "Restore defaults",
+    "measurements": "Measurement settings",
+    "interval": "Refresh interval",
+    "threshold": {
+      "cpu": "CPU threshold",
+      "ram": "RAM threshold",
+      "disk": "Disk threshold"
+    },
+    "themes": {
+      "title": "Themes",
+      "mode": "Visual mode",
+      "options": {
+        "dark": "Dark",
+        "light": "Light",
+        "custom": "Custom"
+      },
+      "fields": {
+        "bg": "Background",
+        "panel": "Panels",
+        "text": "Text",
+        "muted": "Muted",
+        "border": "Dividers",
+        "accent": "Accent"
+      }
+    },
+    "layout": {
+      "title": "Layout",
+      "unlock": "Unlock drag & resize",
+      "hint": "Drag the cards to reorder them and resize from the lower corner.",
+      "presetLabel": "Layout preset",
+      "presetHint": "Apply a quick arrangement for the cards.",
+      "customPreset": "Custom"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "enable": "Enable notifications",
+      "sound": "Play sound",
+      "cooldown": "Cooldown",
+      "channels": "Channels"
+    },
+    "shortcuts": {
+      "title": "Keyboard shortcuts",
+      "enable": "Enable shortcuts"
+    },
+    "profile": {
+      "title": "Usage profiles",
+      "label": "Active profile",
+      "hint": "Adjust refresh rate and thresholds to match your use case."
+    },
+    "language": {
+      "title": "Language",
+      "label": "Interface language",
+      "options": {
+        "es": "Spanish",
+        "en": "English"
+      }
+    }
+  },
+  "metrics": {
+    "average": "Average",
+    "peak": "Peak",
+    "cpu": "CPU",
+    "ram": "RAM",
+    "disk": "Disk",
+    "cores": "CPU per core",
+    "coreCount": "{count} cores",
+    "coreLabel": "Core {index}"
+  },
+  "charts": {
+    "historyAria": "History {label}",
+    "tooltip": "{label} {latest}% · Average {average}% · Peak {peak}% · Last {minutes} min"
+  },
+  "alerts": {
+    "label": "Alert:",
+    "cpu": "CPU above {threshold}% ({value}%)",
+    "ram": "RAM above {threshold}% ({value}%)",
+    "disk": "Disk above {threshold}% ({value}%)"
+  },
+  "processes": {
+    "eyebrow": "Process monitor",
+    "title": "Active processes",
+    "subtitle": "Top 5 by CPU/RAM and details for the heaviest processes.",
+    "updateEvery": "Updates every {seconds}s",
+    "count": "{count} processes in view",
+    "topCpu": "Top CPU",
+    "topRam": "Top RAM",
+    "pid": "PID {pid}",
+    "table": {
+      "process": "Process",
+      "pid": "PID",
+      "cpu": "CPU",
+      "ram": "RAM",
+      "memory": "Memory"
+    },
+    "heavy": "⚠️ High usage"
+  },
+  "shortcuts": {
+    "toggleTheme": "Toggle between dark and light theme",
+    "refresh": "Refresh metrics instantly",
+    "toggleLayout": "Lock or unlock the layout",
+    "toggleNotifications": "Enable or mute notifications",
+    "openSettings": "Jump to settings"
+  },
+  "profiles": {
+    "default": {
+      "name": "Default",
+      "description": "Balanced for daily use with fast refresh."
+    },
+    "gaming": {
+      "name": "Gaming",
+      "description": "Higher thresholds and fast refresh for intense sessions."
+    },
+    "work": {
+      "name": "Work",
+      "description": "Stable balance for multitasking and productivity."
+    },
+    "ahorro": {
+      "name": "Saver",
+      "description": "Lower refresh to reduce resource usage."
+    }
+  },
+  "layouts": {
+    "default": {
+      "name": "Default",
+      "description": "Balanced ordering with primary metrics first."
+    },
+    "focus": {
+      "name": "Performance focus",
+      "description": "CPU and RAM upfront to spot spikes fast."
+    },
+    "balanced": {
+      "name": "Diagnostics",
+      "description": "Balanced view with disk and cores visible."
+    },
+    "custom": {
+      "name": "Custom"
+    }
+  },
+  "notifications": {
+    "alertTitle": "Alert {label}",
+    "alertBody": "{label} exceeded {threshold}% (now {value}%)."
+  }
+}

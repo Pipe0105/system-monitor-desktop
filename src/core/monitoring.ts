@@ -51,6 +51,11 @@ export const DEFAULT_CONFIG = {
     ram: 80,
     disk: 75,
   },
+  profileId: "default",
+  layout: {
+    presetId: "default",
+    metricOrder: ["cpu", "cores", "ram", "disk"],
+  },
   notification: {
     cooldownMs: 60000,
   },
@@ -73,11 +78,11 @@ export const DEFAULT_METRIC_ORDER: MetricCardId[] = [
 ];
 
 export const SHORTCUTS = [
-  { keys: "T", description: "Cambiar entre tema oscuro y claro" },
-  { keys: "R", description: "Actualizar métricas al instante" },
-  { keys: "L", description: "Bloquear o desbloquear el layout" },
-  { keys: "N", description: "Activar o silenciar notificaciones" },
-  { keys: "S", description: "Ir al panel de ajustes" },
+  { keys: "T", descriptionKey: "shortcuts.toggleTheme" },
+  { keys: "R", descriptionKey: "shortcuts.refresh" },
+  { keys: "L", descriptionKey: "shortcuts.toggleLayout" },
+  { keys: "N", descriptionKey: "shortcuts.toggleNotifications" },
+  { keys: "S", descriptionKey: "shortcuts.openSettings" },
 ];
 
 export const clampPercent = (value: number) =>

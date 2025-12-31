@@ -30,11 +30,22 @@ import type {
   ThemeMode,
   UsageSample,
 } from "./core/monitoring";
+import { findProfileById, PROFILES } from "./core/profiles";
+import type { ProfileId } from "./core/profiles";
 import { getServices } from "./core/services";
+import { useLanguage } from "./i18n";
+import LanguageSelector from "./ui/LanguageSelector";
+import {
+  findLayoutPresetById,
+  findLayoutPresetIdForOrder,
+  LAYOUT_PRESETS,
+  type LayoutPresetId,
+} from "./ui/layout/presets";
 
 type UsageChartProps = {
   samples: UsageSample[];
   color: string;
+  id: string;
   label: string;
   tooltip?: string;
   eventMarkers?: ChartPoint[];
@@ -43,6 +54,7 @@ type UsageChartProps = {
 const UsageChart = ({
   samples,
   color,
+  id,
   label,
   tooltip,
   eventMarkers = [],
@@ -52,21 +64,17 @@ const UsageChart = ({
   const areaPath = buildAreaPath(points);
 
   return (
-    <div
-      className="usage-chart"
-      aria-label={`Histórico ${label}`}
-      title={tooltip}
-    >
+    <div className="usage-chart" aria-label={label} title={tooltip}>
       <svg viewBox="0 0 100 100" preserveAspectRatio="none">
         <defs>
-          <linearGradient id={`fill-${label}`} x1="0" x2="0" y1="0" y2="1">
+          <linearGradient id={`fill-${id}`} x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.35" />
             <stop offset="100%" stopColor={color} stopOpacity="0.05" />
           </linearGradient>
         </defs>
         {eventMarkers.map((point, index) => (
           <line
-            key={`event-${label}-${index}`}
+            key={`event-${id}-${index}`}
             className="usage-chart-event"
             x1={point.x}
             x2={point.x}
@@ -77,7 +85,7 @@ const UsageChart = ({
         <path
           className="usage-chart-area"
           d={areaPath}
-          fill={`url(#fill-${label})`}
+          fill={`url(#fill-${id})`}
         />
         <path className="usage-chart-line" d={linePath} stroke={color} />
         <polyline
@@ -87,7 +95,7 @@ const UsageChart = ({
         />
         {eventMarkers.map((point, index) => (
           <circle
-            key={`event-dot-${label}-${index}`}
+            key={`event-dot-${id}-${index}`}
             className="usage-chart-event-dot"
             cx={point.x}
             cy={point.y}
@@ -141,6 +149,7 @@ function App() {
   const [diskThreshold, setDiskThreshold] = useState(
     DEFAULT_CONFIG.thresholds.disk
   );
+  const [profileId, setProfileId] = useState<ProfileId>("default");
   const [settingsReady, setSettingsReady] = useState(false);
   const [autoStartEnabled, setAutoStartEnabled] = useState(false);
   const [autoStartAvailable, setAutoStartAvailable] = useState(false);
@@ -159,6 +168,8 @@ function App() {
       DEFAULT_METRIC_ORDER
     )
   );
+  const [layoutPresetId, setLayoutPresetId] =
+    useState<LayoutPresetId>("custom");
   const [notificationsEnabled, setNotificationsEnabled] = useState(
     safelyParseJSON(
       window.localStorage.getItem("system-monitor-notifications-enabled"),
@@ -195,6 +206,7 @@ function App() {
   const notificationTimers = useRef({ cpu: 0, ram: 0, disk: 0 });
   const settingsRef = useRef<HTMLDivElement | null>(null);
   const services = getServices();
+  const { t } = useLanguage();
 
   const appendSample = (
     previous: UsageSample[],
@@ -320,10 +332,14 @@ function App() {
       const now = Date.now();
       const lastSent = notificationTimers.current[metric];
       if (!wasAlert || now - lastSent >= notificationCooldownMs) {
-        const label = metric.toUpperCase();
+        const label = t(`metrics.${metric}`);
         sendNotification(
-          `Alerta ${label}`,
-          `${label} superó el ${threshold}% (ahora ${formatPercent(value)}%).`
+          t("notifications.alertTitle", { label }),
+          t("notifications.alertBody", {
+            label,
+            threshold,
+            value: formatPercent(value),
+          })
         );
         notificationTimers.current[metric] = now;
       }
@@ -333,6 +349,7 @@ function App() {
       notificationCooldownMs,
       notificationsEnabled,
       sendNotification,
+      t,
     ]
   );
 
@@ -380,12 +397,29 @@ function App() {
     }
     const loadConfig = async () => {
       const config = await services.config.getConfig();
+      const nextProfileId = config.profileId ?? "default";
       setIntervalMs(config.intervalMs);
       setCpuThreshold(config.thresholds?.cpu ?? DEFAULT_CONFIG.thresholds.cpu);
       setRamThreshold(config.thresholds?.ram ?? DEFAULT_CONFIG.thresholds.ram);
       setDiskThreshold(
         config.thresholds?.disk ?? DEFAULT_CONFIG.thresholds.disk
       );
+      setProfileId(nextProfileId);
+      const storedMetricOrder = safelyParseJSON(
+        window.localStorage.getItem("system-monitor-metric-order"),
+        DEFAULT_METRIC_ORDER
+      );
+      const configMetricOrder = config.layout?.metricOrder ?? storedMetricOrder;
+      const normalizedOrder = normalizeMetricOrder(
+        configMetricOrder,
+        DEFAULT_METRIC_ORDER
+      );
+      setMetricOrder(normalizedOrder);
+      const resolvedPreset =
+        (config.layout?.presetId as LayoutPresetId | undefined) ??
+        findLayoutPresetIdForOrder(normalizedOrder) ??
+        "custom";
+      setLayoutPresetId(resolvedPreset);
       setSettingsReady(true);
     };
 
@@ -421,6 +455,11 @@ function App() {
       "system-monitor-metric-order",
       JSON.stringify(metricOrder)
     );
+  }, [metricOrder]);
+
+  useEffect(() => {
+    const matchedPreset = findLayoutPresetIdForOrder(metricOrder);
+    setLayoutPresetId(matchedPreset ?? "custom");
   }, [metricOrder]);
 
   useEffect(() => {
@@ -467,6 +506,11 @@ function App() {
           ram: ramThreshold,
           disk: diskThreshold,
         },
+        profileId,
+        layout: {
+          presetId: layoutPresetId,
+          metricOrder,
+        },
       });
     }
   }, [
@@ -475,6 +519,9 @@ function App() {
     cpuThreshold,
     ramThreshold,
     diskThreshold,
+    profileId,
+    layoutPresetId,
+    metricOrder,
     services,
   ]);
 
@@ -579,15 +626,32 @@ function App() {
     () => [...processes].sort((a, b) => b.mem - a.mem).slice(0, 5),
     [processes]
   );
+  const activeProfile = useMemo(
+    () => findProfileById(profileId) ?? PROFILES[0],
+    [profileId]
+  );
+  const activeLayoutPreset = useMemo(
+    () => findLayoutPresetById(layoutPresetId),
+    [layoutPresetId]
+  );
   const alerts = [
     cpu >= cpuThreshold
-      ? `CPU encima del ${cpuThreshold}% (${formatPercent(cpu)}%)`
+      ? t("alerts.cpu", {
+          threshold: cpuThreshold,
+          value: formatPercent(cpu),
+        })
       : null,
     ram >= ramThreshold
-      ? `RAM encima del ${ramThreshold}% (${formatPercent(ram)}%)`
+      ? t("alerts.ram", {
+          threshold: ramThreshold,
+          value: formatPercent(ram),
+        })
       : null,
     disk >= diskThreshold
-      ? `Disco encima del ${diskThreshold}% (${formatPercent(disk)}%)`
+      ? t("alerts.disk", {
+          threshold: diskThreshold,
+          value: formatPercent(disk),
+        })
       : null,
   ].filter(Boolean) as string[];
 
@@ -611,6 +675,17 @@ function App() {
     setCpuThreshold(config.thresholds?.cpu ?? DEFAULT_CONFIG.thresholds.cpu);
     setRamThreshold(config.thresholds?.ram ?? DEFAULT_CONFIG.thresholds.ram);
     setDiskThreshold(config.thresholds?.disk ?? DEFAULT_CONFIG.thresholds.disk);
+    setProfileId(config.profileId ?? "default");
+    const normalizedOrder = normalizeMetricOrder(
+      config.layout?.metricOrder ?? DEFAULT_METRIC_ORDER,
+      DEFAULT_METRIC_ORDER
+    );
+    setMetricOrder(normalizedOrder);
+    setLayoutPresetId(
+      (config.layout?.presetId as LayoutPresetId | undefined) ??
+        findLayoutPresetIdForOrder(normalizedOrder) ??
+        "custom"
+    );
   };
 
   const handleMetricDragStart = (id: MetricCardId) => {
@@ -649,6 +724,33 @@ function App() {
     setThemeMode(value);
   };
 
+  const handleProfileChange = (value: ProfileId) => {
+    const profile = findProfileById(value);
+    if (!profile) {
+      return;
+    }
+    setProfileId(profile.id);
+    setIntervalMs(profile.intervalMs);
+    setCpuThreshold(profile.thresholds.cpu);
+    setRamThreshold(profile.thresholds.ram);
+    setDiskThreshold(profile.thresholds.disk);
+  };
+
+  const handleLayoutPresetChange = (value: LayoutPresetId) => {
+    if (value === "custom") {
+      setLayoutPresetId("custom");
+      return;
+    }
+
+    const preset = findLayoutPresetById(value);
+    if (!preset) {
+      return;
+    }
+
+    setMetricOrder(preset.metricOrder);
+    setLayoutPresetId(preset.id);
+  };
+
   const handleCustomThemeChange = (key: keyof CustomTheme, value: string) => {
     setCustomTheme((prev) => ({
       ...prev,
@@ -682,7 +784,7 @@ function App() {
                 <span className="drag-handle" aria-hidden="true">
                   ⠿
                 </span>
-                <h2>CPU</h2>
+                <h2>{t("metrics.cpu")}</h2>
               </div>
               <span
                 className="metric-pill"
@@ -693,11 +795,11 @@ function App() {
             </div>
             <div className="metric-stats">
               <div className="metric-stat">
-                <span>Promedio</span>
+                <span>{t("metrics.average")}</span>
                 <strong>{formatPercent(cpuStats.average)}%</strong>
               </div>
               <div className="metric-stat">
-                <span>Pico</span>
+                <span>{t("metrics.peak")}</span>
                 <strong>{formatPercent(cpuStats.peak)}%</strong>
               </div>
             </div>
@@ -710,15 +812,16 @@ function App() {
             <UsageChart
               samples={cpuHistory}
               color={cpuColor}
-              label="cpu"
+              id="cpu"
+              label={t("charts.historyAria", { label: t("metrics.cpu") })}
               eventMarkers={cpuEventMarkers}
-              tooltip={`CPU ${formatPercent(
-                cpuStats.latest
-              )}% · Promedio ${formatPercent(
-                cpuStats.average
-              )}% · Pico ${formatPercent(
-                cpuStats.peak
-              )}% · Últimos ${HISTORY_WINDOW_MINUTES} min`}
+              tooltip={t("charts.tooltip", {
+                label: t("metrics.cpu"),
+                latest: formatPercent(cpuStats.latest),
+                average: formatPercent(cpuStats.average),
+                peak: formatPercent(cpuStats.peak),
+                minutes: HISTORY_WINDOW_MINUTES,
+              })}
             />
           </article>
         );
@@ -739,13 +842,13 @@ function App() {
                 <span className="drag-handle" aria-hidden="true">
                   ⠿
                 </span>
-                <h2>CPU por núcleo</h2>
+                <h2>{t("metrics.cores")}</h2>
               </div>
               <span
                 className="metric-pill"
                 style={{ backgroundColor: cpuColor }}
               >
-                {cpuCores.length} núcleos
+                {t("metrics.coreCount", { count: cpuCores.length })}
               </span>
             </div>
             <div className="core-grid">
@@ -754,7 +857,9 @@ function App() {
                 return (
                   <div key={`core-${index}`} className="core-card">
                     <div className="core-header">
-                      <span>Núcleo {index + 1}</span>
+                      <span>
+                        {t("metrics.coreLabel", { index: index + 1 })}
+                      </span>
                       <strong>{formatPercent(coreValue)}%</strong>
                     </div>
                     <div className="metric-bar">
@@ -789,7 +894,7 @@ function App() {
                 <span className="drag-handle" aria-hidden="true">
                   ⠿
                 </span>
-                <h2>RAM</h2>
+                <h2>{t("metrics.ram")}</h2>
               </div>
               <span
                 className="metric-pill"
@@ -800,11 +905,11 @@ function App() {
             </div>
             <div className="metric-stats">
               <div className="metric-stat">
-                <span>Promedio</span>
+                <span>{t("metrics.average")}</span>
                 <strong>{formatPercent(ramStats.average)}%</strong>
               </div>
               <div className="metric-stat">
-                <span>Pico</span>
+                <span>{t("metrics.peak")}</span>
                 <strong>{formatPercent(ramStats.peak)}%</strong>
               </div>
             </div>
@@ -817,15 +922,16 @@ function App() {
             <UsageChart
               samples={ramHistory}
               color={ramColor}
-              label="ram"
+              id="ram"
+              label={t("charts.historyAria", { label: t("metrics.ram") })}
               eventMarkers={ramEventMarkers}
-              tooltip={`RAM ${formatPercent(
-                ramStats.latest
-              )}% · Promedio ${formatPercent(
-                ramStats.average
-              )}% · Pico ${formatPercent(
-                ramStats.peak
-              )}% · Últimos ${HISTORY_WINDOW_MINUTES} min`}
+              tooltip={t("charts.tooltip", {
+                label: t("metrics.ram"),
+                latest: formatPercent(ramStats.latest),
+                average: formatPercent(ramStats.average),
+                peak: formatPercent(ramStats.peak),
+                minutes: HISTORY_WINDOW_MINUTES,
+              })}
             />
           </article>
         );
@@ -846,7 +952,7 @@ function App() {
                 <span className="drag-handle" aria-hidden="true">
                   ⠿
                 </span>
-                <h2>Disco</h2>
+                <h2>{t("metrics.disk")}</h2>
               </div>
               <span
                 className="metric-pill"
@@ -857,11 +963,11 @@ function App() {
             </div>
             <div className="metric-stats">
               <div className="metric-stat">
-                <span>Promedio</span>
+                <span>{t("metrics.average")}</span>
                 <strong>{formatPercent(diskStats.average)}%</strong>
               </div>
               <div className="metric-stat">
-                <span>Pico</span>
+                <span>{t("metrics.peak")}</span>
                 <strong>{formatPercent(diskStats.peak)}%</strong>
               </div>
             </div>
@@ -874,15 +980,16 @@ function App() {
             <UsageChart
               samples={diskHistory}
               color={diskColor}
-              label="disk"
+              id="disk"
+              label={t("charts.historyAria", { label: t("metrics.disk") })}
               eventMarkers={diskEventMarkers}
-              tooltip={`Disco ${formatPercent(
-                diskStats.latest
-              )}% · Promedio ${formatPercent(
-                diskStats.average
-              )}% · Pico ${formatPercent(
-                diskStats.peak
-              )}% · Últimos ${HISTORY_WINDOW_MINUTES} min`}
+              tooltip={t("charts.tooltip", {
+                label: t("metrics.disk"),
+                latest: formatPercent(diskStats.latest),
+                average: formatPercent(diskStats.average),
+                peak: formatPercent(diskStats.peak),
+                minutes: HISTORY_WINDOW_MINUTES,
+              })}
             />
           </article>
         );

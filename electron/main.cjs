@@ -23,6 +23,12 @@ const DEFAULT_CONFIG = {
   thresholds: {
     cpu: 80,
     ram: 80,
+    disk: 75,
+  },
+  profileId: "default",
+  layout: {
+    presetId: "default",
+    metricOrder: ["cpu", "cores", "ram", "disk"],
   },
 };
 
@@ -46,6 +52,7 @@ const clampNumber = (value, min, max, fallback) => {
 
 const normalizeConfig = (config = {}) => {
   const thresholds = config.thresholds || {};
+  const layout = config.layout || {};
 
   return {
     intervalMs: clampNumber(
@@ -57,6 +64,28 @@ const normalizeConfig = (config = {}) => {
     thresholds: {
       cpu: clampNumber(thresholds.cpu, 20, 100, DEFAULT_CONFIG.thresholds.cpu),
       ram: clampNumber(thresholds.ram, 20, 100, DEFAULT_CONFIG.thresholds.ram),
+      disk: clampNumber(
+        thresholds.disk,
+        20,
+        100,
+        DEFAULT_CONFIG.thresholds.disk
+      ),
+    },
+    profileId:
+      config.profileId === "default" ||
+      config.profileId === "gaming" ||
+      config.profileId === "work" ||
+      config.profileId === "ahorro"
+        ? config.profileId
+        : DEFAULT_CONFIG.profileId,
+    layout: {
+      presetId:
+        typeof layout.presetId === "string"
+          ? layout.presetId
+          : DEFAULT_CONFIG.layout.presetId,
+      metricOrder: Array.isArray(layout.metricOrder)
+        ? layout.metricOrder
+        : DEFAULT_CONFIG.layout.metricOrder,
     },
   };
 };

@@ -1,3 +1,6 @@
+import type { MetricCardId } from "./monitoring";
+import type { ProfileId } from "./profiles";
+
 export type SystemInfo = {
   cpu: string;
   ram: string;
@@ -18,6 +21,11 @@ export type Config = {
     cpu: number;
     ram: number;
     disk: number;
+  };
+  profileId?: ProfileId;
+  layout?: {
+    presetId?: string;
+    metricOrder?: MetricCardId[];
   };
 };
 
